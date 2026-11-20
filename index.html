@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#d9622b">
+<title>Escapades</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#f6f3ee;--card:#fff;--ink:#222;--muted:#77706a;--accent:#d9622b;--line:#e6e0d8}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);padding-top:env(safe-area-inset-top);padding-bottom:40px}
+header{padding:16px 16px 4px;display:flex;justify-content:space-between;align-items:center}
+h1{margin:0;font-size:24px}
+select{padding:8px;border-radius:10px;border:1px solid var(--line);font-size:15px;max-width:55%}
+nav{display:flex;gap:8px;padding:10px 16px;position:sticky;top:0;background:var(--bg);z-index:999}
+nav button{flex:1;padding:10px;border:1px solid var(--line);background:#fff;border-radius:10px;font-size:14px;color:var(--ink)}
+nav button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+main{padding:0 16px}
+.card{background:var(--card);border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.meta{color:var(--muted);font-size:13px}
+h2{font-size:18px;margin:20px 0 4px}
+input,textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font-size:16px;margin:6px 0;background:#fff;font-family:inherit}
+button.primary{width:100%;padding:13px;background:var(--accent);color:#fff;border:0;border-radius:10px;font-size:16px;margin-top:6px}
+button.ghost{background:none;border:0;color:var(--muted);font-size:13px;padding:6px 0;cursor:pointer}
+button.ghost.danger{color:#b3261e}
+.row{display:flex;align-items:center;gap:10px}
+.done{text-decoration:line-through;color:var(--muted)}
+.card img{width:100%;border-radius:10px;margin-top:8px;display:block}
+#map{height:55vh;border-radius:14px;margin-top:10px;z-index:1}
+.countdown{font-size:22px;font-weight:600;color:var(--accent)}
+.notice{background:#fff3e0;border-radius:10px;padding:10px;font-size:14px;margin:10px 0}
+.hidden{display:none}
+textarea.share{font-family:monospace;font-size:12px;height:110px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Escapades</h1>
+  <select id="escSelect"></select>
+</header>
+<nav>
+  <button data-tab="carte" class="on">Carte</button>
+  <button data-tab="ajouter">Ajouter</button>
+  <button data-tab="spots">À essayer</button>
+  <button data-tab="partage">Partage</button>
+</nav>
+<main>
+  <!-- CARTE -->
+  <section id="tab-carte">
+    <div class="card">
+      <div class="meta">Retour de l’escapade</div>
+      <div class="countdown" id="countdown">—</div>
+    </div>
+    <div id="map"></div>
+    <div class="card">
+      <button class="primary" id="btnHere">📍 Je suis ici</button>
+      <button class="primary" id="btnTrack" style="background:#444">▶ Démarrer le tracé</button>
+      <div class="meta">Le tracé s’affiche sur la carte pendant que la page reste ouverte, écran allumé.</div>
+      <div class="meta" id="posInfo" style="margin-top:8px"></div>
+    </div>
+    <h2>Moments</h2>
+    <div id="momentsList"></div>
+    <h2>Nouvelle escapade</h2>
+    <div class="card">
+      <input id="escNom" placeholder="Ex : Menton – Vintimille">
+      <input id="escDebut" type="date" title="Début">
+      <input id="escFin" type="datetime-local" title="Retour prévu">
+      <button class="primary" id="escSave">Créer</button>
+    </div>
+  </section>
+
+  <!-- AJOUTER -->
+  <section id="tab-ajouter" class="hidden">
+    <h2>Nouveau moment</h2>
+    <div class="card">
+      <input id="momLieu" placeholder="Lieu (ex : marché de Vintimille)">
+      <textarea id="momNote" rows="3" placeholder="Une note, un souvenir…"></textarea>
+      <label class="row"><input type="checkbox" id="momSympa" style="width:auto;margin:0"> ⭐ Endroit sympa</label>
+      <label class="row"><input type="checkbox" id="momReel" style="width:auto;margin:0"> 🎬 Bon décor pour photos ou Reel</label>
+      <input id="momPhoto" type="file" accept="image/*">
+      <div class="meta" id="momPos">Position : tape sur la carte ou sur « Je suis ici »</div>
+      <button class="primary" id="momSave">Enregistrer le moment</button>
+    </div>
+    <div class="notice" id="momMsg" style="display:none"></div>
+  </section>
+
+  <!-- SPOTS -->
+  <section id="tab-spots" class="hidden">
+    <h2>Spots à essayer</h2>
+    <div class="card">
+      <input id="spotNom" placeholder="Café, vue, restaurant…">
+      <input id="spotOu" placeholder="Où (ville)">
+      <div class="meta" id="spotPos">Position : même logique que pour les moments</div>
+      <button class="primary" id="spotSave">Ajouter</button>
+    </div>
+    <div id="spotsList"></div>
+  </section>
+
+  <!-- PARTAGE -->
+  <section id="tab-partage" class="hidden">
+    <h2>Partager avec ton/ta partenaire</h2>
+    <div class="card">
+      <p class="meta">Sans serveur, on se passe les données par copier-coller : exporte ici, colle le texte chez l’autre, puis importe.</p>
+      <textarea id="shareText" class="share" placeholder="Le code apparaîtra ici"></textarea>
+      <button class="primary" id="btnExport">Exporter (copier le code)</button>
+      <button class="primary" id="btnImport" style="background:#444">Importer le code collé</button>
+    </div>
+    <h2>Récap de l’escapade</h2>
+    <div class="card">
+      <div id="recap" class="meta"></div>
+      <button class="primary" id="btnRecap">Copier le récap</button>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const today = () => new Date().toISOString().slice(0, 10);
+const fmt = d => { try { return new Date(d).toLocaleDateString("fr-FR", {day:"numeric", month:"short", year:"numeric"}); } catch (e) { return d || ""; } };
+const KEY = "escapades-v2";
+const COLORS = ["#d9622b","#2b7bd9","#2bb673","#9b59b6","#e0a526","#c2185b"];
+
+let state = { escapades: [], moments: [], spots: [], activeId: null };
+let me = null;             // { lat, lng, acc } position actuelle
+let pick = null;           // position choisie (carte ou GPS) pour un nouvel ajout
+let map, layer;
+
+// ---------- Persistance ----------
+function load() {
+  try { const raw = localStorage.getItem(KEY); if (raw) state = { ...state, ...JSON.parse(raw) }; } catch (e) {}
+  if (!state.activeId && state.escapades.length) state.activeId = state.escapades[0].id;
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { toast("Stockage plein : exporte tes données"); } }
+
+// ---------- Navigation ----------
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  ["carte","ajouter","spots","partage"].forEach(t => $("tab-" + t).classList.toggle("hidden", t !== b.dataset.tab));
+  if (b.dataset.tab === "carte") setTimeout(() => map.invalidateSize(), 50);
+});
+
+function toast(msg) { const m = $("momMsg"); m.textContent = msg; m.style.display = "block"; setTimeout(() => m.style.display = "none", 3500); }
+
+// ---------- Carte ----------
+function initMap() {
+  map = L.map("map").setView([45.8, 7.6], 5);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap",
+    referrerPolicy: "strict-origin-when-cross-origin",   // exigé par la politique des tuiles OSM
+    maxZoom: 19
+  }).addTo(map);
+  layer = L.layerGroup().addTo(map);
+  map.on("click", e => { pick = { lat: e.latlng.lat, lng: e.latlng.lng }; $("momPos").textContent = "Position choisie sur la carte ✓"; $("spotPos").textContent = "Position choisie sur la carte ✓"; });
+}
+
+function colorOf(escId) {
+  const i = state.escapades.findIndex(e => e.id === escId);
+  return COLORS[(i < 0 ? 0 : i) % COLORS.length];
+}
+
+function drawMap() {
+  layer.clearLayers();
+  const active = state.activeId;
+  const act = state.escapades.find(e => e.id === active);
+  if (act && act.track && act.track.length > 1)
+    L.polyline(act.track.map(p => [p.lat, p.lng]), { color: colorOf(active), weight: 4, opacity: 0.8 }).addTo(layer);
+  state.moments.filter(m => !active || m.escId === active).forEach(m => {
+    if (m.lat == null) return;
+    L.circleMarker([m.lat, m.lng], { radius: 9, color: "#fff", weight: 2, fillColor: colorOf(m.escId), fillOpacity: 1 })
+      .bindPopup(`<b>${esc(m.lieu || "Moment")}</b><br>${esc(m.note || "")}${m.photo ? `<br><img src="${m.photo}" style="width:160px;border-radius:8px;margin-top:6px">` : ""}`)
+      .addTo(layer);
+  });
+  state.spots.filter(s => !s.fait && s.lat != null).forEach(s => {
+    L.circleMarker([s.lat, s.lng], { radius: 7, color: "#333", weight: 2, fillColor: "#fff", fillOpacity: 1 })
+      .bindPopup(`⭐ <b>${esc(s.nom)}</b> ${esc(s.ou || "")}`)
+      .addTo(layer);
+  });
+  if (me) L.circleMarker([me.lat, me.lng], { radius: 6, color: "#fff", weight: 2, fillColor: "#1e88e5", fillOpacity: 1 }).addTo(layer);
+}
+
+// ---------- Position ----------
+function locate(cb) {
+  if (!navigator.geolocation) return toast("Géolocalisation indisponible sur cet appareil");
+  navigator.geolocation.getCurrentPosition(p => {
+    me = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+    pick = { lat: me.lat, lng: me.lng };
+    $("posInfo").textContent = `Position trouvée (± ${Math.round(me.acc)} m)`;
+    $("momPos").textContent = "Position GPS ✓"; $("spotPos").textContent = "Position GPS ✓";
+    map.setView([me.lat, me.lng], 15);
+    drawMap(); renderSpots(); cb && cb();
+  }, err => {
+    toast("Position refusée ou indisponible. Tape sur la carte à la place.");
+  }, { enableHighAccuracy: true, timeout: 15000 });
+}
+$("btnHere").onclick = () => locate();
+
+// ---------- Tracé du trajet (points enregistrés par escapade) ----------
+let watchId = null;
+function toggleTrack() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId); watchId = null;
+    $("btnTrack").textContent = "▶ Démarrer le tracé"; save(); return;
+  }
+  if (!navigator.geolocation) return toast("Géolocalisation indisponible sur cet appareil");
+  if (!state.activeId) return toast("Sélectionne une escapade d’abord");
+  watchId = navigator.geolocation.watchPosition(p => {
+    const esc = state.escapades.find(e => e.id === state.activeId);
+    if (!esc) return;
+    const pt = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
+    esc.track = esc.track || [];
+    const last = esc.track[esc.track.length - 1];
+    if (last && km(last, pt) < 0.01) return;   // ignore les micro-mouvements (< 10 m)
+    esc.track.push(pt);
+    save(); drawMap();
+  }, () => { toast("Tracé impossible : autorise la position"); }, { enableHighAccuracy: true, maximumAge: 10000 });
+  $("btnTrack").textContent = "■ Arrêter le tracé";
+}
+$("btnTrack").onclick = toggleTrack;
+
+// ---------- Escapades ----------
+function renderEsc() {
+  $("escSelect").innerHTML = state.escapades.map(e => `<option value="${e.id}">${esc(e.nom)}</option>`).join("")
+    || '<option value="">Aucune escapade</option>';
+  if (state.activeId) $("escSelect").value = state.activeId;
+  tickCountdown();
+}
+$("escSelect").onchange = e => { state.activeId = e.target.value; save(); renderAll(); };
+
+$("escSave").onclick = () => {
+  const nom = $("escNom").value.trim();
+  if (!nom) return toast("Donne un nom à l’escapade.");
+  const e = { id: uid(), nom, debut: $("escDebut").value || today(), retour: $("escFin").value || "" };
+  state.escapades.push(e); state.activeId = e.id;
+  $("escNom").value = ""; $("escDebut").value = ""; $("escFin").value = "";
+  save(); renderAll();
+};
+
+function tickCountdown() {
+  const e = state.escapades.find(x => x.id === state.activeId);
+  if (!e || !e.retour) { $("countdown").textContent = e ? "Date de retour non renseignée" : "—"; return; }
+  const diff = new Date(e.retour) - new Date();
+  if (diff <= 0) return $("countdown").textContent = "Retour atteint 🏠";
+  const d = Math.floor(diff / 864e5), h = Math.floor(diff % 864e5 / 36e5), m = Math.floor(diff % 36e5 / 6e4);
+  $("countdown").textContent = `${d} j ${h} h ${m} min`;
+}
+setInterval(tickCountdown, 30000);
+
+// ---------- Moments ----------
+function renderMoments() {
+  const list = state.moments.filter(m => m.escId === state.activeId).sort((a, b) => b.ts - a.ts);
+  $("momentsList").innerHTML = list.map(m => `
+    <div class="card">
+      <div class="meta">${esc(m.lieu || "Sans lieu")} · ${fmt(m.date)} ${m.sympa ? "· ⭐ sympa" : ""} ${m.reel ? "· 🎬 Reel" : ""}</div>
+      ${m.note ? `<p style="white-space:pre-wrap">${esc(m.note)}</p>` : ""}
+      ${m.photo ? `<img src="${m.photo}" alt="">` : ""}
+      <button class="ghost danger" data-del-moment="${m.id}">Supprimer</button>
+    </div>`).join("") || '<div class="card meta">Pas encore de moment pour cette escapade.</div>';
+}
+
+function resizePhoto(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return resolve(null);
+    const img = new Image();
+    img.onload = () => {
+      const r = Math.min(1, 900 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => reject(new Error("Image illisible"));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+$("momSave").onclick = async () => {
+  if (!state.activeId) return toast("Crée d’abord une escapade (onglet Carte).");
+  try {
+    const photo = await resizePhoto($("momPhoto").files[0]);
+    state.moments.push({
+      id: uid(), escId: state.activeId, lieu: $("momLieu").value.trim(), note: $("momNote").value.trim(),
+      photo, sympa: $("momSympa").checked, reel: $("momReel").checked,
+      lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, date: today(), ts: Date.now()
+    });
+    $("momLieu").value = ""; $("momNote").value = ""; $("momPhoto").value = ""; pick = null;
+    $("momSympa").checked = false; $("momReel").checked = false;
+    $("momPos").textContent = "Position : tape sur la carte ou sur « Je suis ici »";
+    save(); renderAll();
+    document.querySelector('nav button[data-tab="carte"]').click();
+  } catch (err) { toast(err.message); }
+};
+
+// ---------- Spots (triés par distance) ----------
+function km(a, b) {
+  const R = 6371, toR = x => x * Math.PI / 180;
+  const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function renderSpots() {
+  const list = state.spots.map(s => ({ ...s, d: (me && s.lat != null) ? km(me, s) : null }))
+    .sort((a, b) => (a.fait - b.fait) || ((a.d ?? 1e9) - (b.d ?? 1e9)) || (b.ts - a.ts));
+  $("spotsList").innerHTML = list.map(s => `
+    <div class="card row">
+      <input type="checkbox" data-done="${s.id}" ${s.fait ? "checked" : ""} style="width:auto;margin:0">
+      <div style="flex:1" class="${s.fait ? "done" : ""}">
+        <b>${esc(s.nom)}</b>
+        <div class="meta">${esc(s.ou || "")}${s.d != null ? ` · ${s.d < 1 ? Math.round(s.d * 1000) + " m" : s.d.toFixed(1) + " km"}` : ""}</div>
+      </div>
+      <button class="ghost danger" data-del-spot="${s.id}">✕</button>
+    </div>`).join("") || '<div class="card meta">Rien à essayer pour l’instant.</div>';
+}
+
+$("spotSave").onclick = () => {
+  const nom = $("spotNom").value.trim();
+  if (!nom) return toast("Écris ce qu’on veut essayer.");
+  state.spots.push({ id: uid(), nom, ou: $("spotOu").value.trim(), fait: false, lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, ts: Date.now() });
+  $("spotNom").value = ""; $("spotOu").value = ""; pick = null;
+  save(); renderAll();
+};
+
+// Délégation : suppression en deux clics, cases à cocher
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-del-moment],[data-del-spot]");
+  if (!b) return;
+  if (b.dataset.armed !== "1") {
+    b.dataset.armed = "1"; const t = b.textContent; b.textContent = "Confirmer ?";
+    setTimeout(() => { if (b.isConnected) { b.dataset.armed = ""; b.textContent = t; } }, 3000);
+    return;
+  }
+  if (b.dataset.delMoment) state.moments = state.moments.filter(m => m.id !== b.dataset.delMoment);
+  else state.spots = state.spots.filter(s => s.id !== b.dataset.delSpot);
+  save(); renderAll();
+});
+document.addEventListener("change", e => {
+  const cb = e.target.closest("[data-done]"); if (!cb) return;
+  const s = state.spots.find(x => x.id === cb.dataset.done); if (s) s.fait = cb.checked;
+  save(); renderAll();
+});
+
+// ---------- Partage (copier-coller, sans serveur) ----------
+function encode(obj) { return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }
+function decode(str) { return JSON.parse(decodeURIComponent(escape(atob(str.trim())))); }
+
+$("btnExport").onclick = async () => {
+  const code = "ESC1:" + encode(state);
+  $("shareText").value = code;
+  try { await navigator.clipboard.writeText(code); toast("Code copié. Envoie-le par message."); }
+  catch (e) { $("shareText").select(); toast("Copie le code manuellement"); }
+};
+$("btnImport").onclick = () => {
+  const raw = $("shareText").value.trim();
+  if (!raw.startsWith("ESC1:")) return toast("Code invalide (il doit commencer par ESC1:)");
+  try {
+    const incoming = decode(raw.slice(5));
+    // Fusion : on ajoute ce qui manque, par identifiant
+    const merge = (a, b) => { const ids = new Set(a.map(x => x.id)); return [...a, ...b.filter(x => !ids.has(x.id))]; };
+    state.escapades = merge(state.escapades, incoming.escapades || []);
+    state.moments = merge(state.moments, incoming.moments || []);
+    state.spots = merge(state.spots, incoming.spots || []);
+    state.activeId = state.activeId || (state.escapades[0] || {}).id;
+    save(); renderAll(); toast("Données fusionnées ✓");
+  } catch (e) { toast("Impossible de lire ce code"); }
+};
+
+function recapText() {
+  const e = state.escapades.find(x => x.id === state.activeId);
+  if (!e) return "Pas d’escapade sélectionnée.";
+  const ms = state.moments.filter(m => m.escId === e.id);
+  const lieux = [...new Set(ms.map(m => m.lieu).filter(Boolean))];
+  const fait = state.spots.filter(s => s.fait).length;
+  const sympas = [...new Set(ms.filter(m => m.sympa).map(m => m.lieu || "sans nom"))];
+  const reels = [...new Set(ms.filter(m => m.reel).map(m => m.lieu || "sans nom"))];
+  return `${e.nom} (${fmt(e.debut)})\n${ms.length} moments · ${lieux.length} lieux\nLieux : ${lieux.join(", ") || "—"}\nSpots faits : ${fait}\n⭐ Endroits sympas : ${sympas.join(", ") || "—"}\n🎬 Décors photo / Reel : ${reels.join(", ") || "—"}`;
+}
+function renderRecap() { $("recap").textContent = recapText(); }
+$("btnRecap").onclick = async () => {
+  try { await navigator.clipboard.writeText(recapText()); toast("Récap copié ✓"); }
+  catch (e) { toast("Copie impossible sur cet appareil"); }
+};
+
+// ---------- Rendu global ----------
+function renderAll() {
+  renderEsc(); drawMap(); renderMoments(); renderSpots(); renderRecap();
+}
+
+// ---------- Démarrage ----------
+load();
+initMap();
+renderAll();
+</script>
+</body>
+</html>
