@@ -210,6 +210,21 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .idea .meta{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .idea button{background:none;border:1.5px solid var(--navy);color:var(--navy);border-radius:999px;padding:6px 12px;font:600 13px var(--sans)}
 
+.gauge{height:10px;border-radius:9px;background:rgba(255,255,255,.15);overflow:hidden;margin-top:8px}
+.gauge i{display:block;height:100%;background:var(--gold);border-radius:9px}
+.gauge.over i{background:#ff6b5b}
+.valise .it{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--line);font-size:15px}
+.valise .it.ok span{text-decoration:line-through;color:var(--muted)}
+.valise .it .check{width:24px;height:24px;font-size:12px}
+.valise .it.ok .check{background:var(--green);border-color:var(--green);color:#fff}
+.story{counter-reset:shot}
+.shot{background:#fff;border-radius:14px;padding:10px;margin:14px 0;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.shot img{width:100%;border-radius:10px;display:block}
+.shot .h{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.shot .n{width:30px;height:30px;border-radius:50%;background:var(--red);color:#fff;font:700 13px var(--mono);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.shot b{font-family:var(--display);font-size:17px}
+.shot .meta{font-family:var(--mono);font-size:10px;color:var(--muted)}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -280,7 +295,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
       <button class="chip" data-filter="sympa">⭐ Endroits sympas</button>
       <button class="chip" data-filter="reel">🎬 À filmer / Reel</button>
     </div>
+    <button class="btn red" id="btnReel">🎬 Mode montage Reel</button>
     <div id="polas"></div>
+    <div id="story" hidden></div>
   </section>
 
   <!-- ============ DÉPENSES ============ -->
@@ -323,6 +340,15 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
   <section id="tab-passeport" hidden>
     <h2><small>VISAS & TAMPONS</small>Nos escapades</h2>
     <div class="stamps" id="stamps"></div>
+
+    <h2><small>CHECK-LIST</small>Valise</h2>
+    <div class="card valise">
+      <div id="valise"></div>
+      <div class="row2" style="grid-template-columns:1fr auto;margin-top:10px">
+        <input id="valiseNew" placeholder="Ajouter un objet">
+        <button class="btn" id="valiseAdd" style="margin:0;width:auto;padding:0 18px">+</button>
+      </div>
+    </div>
 
     <h2><small>TICKET SOUVENIR</small>Récap de l'escapade</h2>
     <div class="receipt" id="recap"></div>
@@ -384,6 +410,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     </div>
     <label class="f">Départ</label>
     <input id="escDebut" type="date">
+    <label class="f">Budget pour deux (€, facultatif)</label>
+    <input id="escBudget" type="number" step="10" inputmode="decimal" placeholder="300">
     <label class="f">Retour prévu (pour le compte à rebours)</label>
     <input id="escRetour" type="datetime-local">
     <button class="btn red" id="escSave">Tamponner le billet</button>
@@ -700,6 +728,7 @@ function openEscSheet(id = null) {
   renderLegs();
   $("escDebut").value = (e && e.debut) || today();
   $("escRetour").value = (e && e.retour) || "";
+  $("escBudget").value = (e && e.budget) || "";
   $("escSave").textContent = e ? "Enregistrer" : "Tamponner le billet";
   $("escDelete").hidden = !e;
   openSheet("sheetEsc");
@@ -741,7 +770,8 @@ $("escSave").onclick = () => {
   if (!destination) return toast("Indique la destination");
   const data = { destination, legs, de: "", a: "", nom: destination, transport: (legs[0] || {}).transport || "train",
                  debut: $("escDebut").value || (legs[0] && legs[0].quand ? legs[0].quand.slice(0, 10) : today()),
-                 retour: $("escRetour").value || (legs.length > 1 && legs[legs.length - 1].quand) || "" };
+                 retour: $("escRetour").value || (legs.length > 1 && legs[legs.length - 1].quand) || "",
+                 budget: parseFloat($("escBudget").value) || 0 };
   if (editEscId) Object.assign(state.escapades.find(x => x.id === editEscId), data);
   else { const e = { id: uid(), track: [], ...data }; state.escapades.push(e); state.activeId = e.id; }
   save(); closeSheet("sheetEsc"); renderAll(true); show("carte");
@@ -888,7 +918,9 @@ function renderDepenses() {
   const who = b.debtor === null ? "Vous êtes <em>quittes</em> ✓"
     : `<em>${P(b.debtor)}</em> doit <em>${euro(b.amount)}</em> à ${P(1 - b.debtor)}`;
   $("balance").innerHTML = `<small>ÉQUILIBRE</small><div class="who">${who}</div>
-    <div class="tot">Total de l'escapade : ${euro(b.total)}</div>
+    <div class="tot">Total de l'escapade : ${euro(b.total)}${e.budget ? ` / budget ${euro(e.budget)}` : ""}</div>
+    ${e.budget ? `<div class="gauge ${b.total > e.budget ? "over" : ""}"><i style="width:${Math.min(100, b.total / e.budget * 100)}%"></i></div>
+      <div class="tot" style="margin-top:4px">${b.total > e.budget ? "⚠️ Budget dépassé de " + euro(b.total - e.budget) : "Il reste " + euro(e.budget - b.total)}</div>` : ""}
     <div class="split">
       <div><small>${P(0).toUpperCase()} A PAYÉ</small><b>${euro(b.paid[0])}</b><span class="tot">sa part : ${euro(b.share[0])}</span></div>
       <div><small>${P(1).toUpperCase()} A PAYÉ</small><b>${euro(b.paid[1])}</b><span class="tot">sa part : ${euro(b.share[1])}</span></div>
@@ -1096,6 +1128,48 @@ $("btnCopyCaption").onclick = async () => {
   try { await navigator.clipboard.writeText($("caption").textContent); toast("Légende copiée ✓"); } catch (e) { toast("Copie impossible"); }
 };
 
+// ================= Valise =================
+function defaultValise(e) {
+  const base = ["Carte d'identité / passeport", "Billets de train", "Chargeur + batterie externe", "Écouteurs",
+    "Trousse de toilette", "Médicaments", "Tenue pour le soir", "Chaussures de marche", "Parapluie / K-way", "Lunettes de soleil"];
+  if (/londres|london|uk|angleterre|dublin|irlande/i.test(names(e)[1])) base.push("Adaptateur prise UK", "Un peu de £");
+  return base.map(t => ({ id: uid(), t, ok: false }));
+}
+function renderValise() {
+  const e = active();
+  if (!e) { $("valise").innerHTML = `<div style="color:var(--muted)">Crée d'abord une escapade</div>`; return; }
+  if (!e.valise) { e.valise = defaultValise(e); save(); }
+  const done = e.valise.filter(x => x.ok).length;
+  $("valise").innerHTML = `<div class="pos-status" style="text-align:left;margin:0 0 4px">${done}/${e.valise.length} dans le sac</div>` +
+    e.valise.map(x => `<div class="it ${x.ok ? "ok" : ""}"><button class="check" data-val="${x.id}">${x.ok ? "✓" : ""}</button><span>${esc(x.t)}</span><button class="x" data-val-del="${x.id}" style="margin-left:auto">✕</button></div>`).join("");
+  $("valise").querySelectorAll("[data-val]").forEach(b => b.onclick = () => { const it = e.valise.find(x => x.id === b.dataset.val); it.ok = !it.ok; save(); renderValise(); });
+  $("valise").querySelectorAll("[data-val-del]").forEach(b => b.onclick = () => { e.valise = e.valise.filter(x => x.id !== b.dataset.valDel); save(); renderValise(); });
+}
+$("valiseAdd").onclick = () => {
+  const e = active(), t = $("valiseNew").value.trim(); if (!e || !t) return;
+  e.valise = e.valise || []; e.valise.push({ id: uid(), t, ok: false }); $("valiseNew").value = ""; save(); renderValise();
+};
+
+// ================= Mode montage Reel =================
+let reelMode = false;
+$("btnReel").onclick = () => { reelMode = !reelMode; renderReel(); };
+function renderReel() {
+  $("btnReel").textContent = reelMode ? "← Retour au carnet" : "🎬 Mode montage Reel";
+  $("polas").hidden = reelMode; $("story").hidden = !reelMode;
+  document.querySelector("#tab-carnet .filters").hidden = reelMode;
+  if (!reelMode) return;
+  const e = active();
+  let list = state.moments.filter(m => e && m.escId === e.id && safeImg(m.photo)).sort((a, b) => a.ts - b.ts);
+  const flagged = list.filter(m => m.reel);
+  if (flagged.length >= 3) list = flagged;
+  $("story").innerHTML = list.length ? `
+    <p class="pos-status" style="text-align:left">${list.length} plans dans l'ordre du voyage${flagged.length >= 3 ? " (uniquement les 🎬)" : ""}. Appuie longtemps sur une photo pour l'enregistrer dans ta galerie, puis monte-les dans cet ordre.</p>
+    <div class="story">${list.map((m, i) => `<div class="shot"><div class="h"><div class="n">${i + 1}</div><div><b>${esc(m.lieu || "Plan " + (i + 1))}</b>
+      <div class="meta">${fmt(m.date, {weekday:"short", day:"numeric", month:"short"})} · ${new Date(m.ts).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})}${m.reel ? " · 🎬" : ""}${m.sympa ? " · ⭐" : ""}</div></div></div>
+      <img src="${safeImg(m.photo)}" alt="">${m.note ? `<div class="viewer-note" style="font-size:20px;margin:8px 2px 0">${esc(m.note)}</div>` : ""}</div>`).join("")}</div>`
+    : `<div class="empty"><b>Pas encore de photos</b>Ajoute des moments avec photo (et coche 🎬) pendant le voyage : ils s'aligneront ici dans l'ordre pour ton Reel.</div>`;
+}
+
 // ================= Spots =================
 function renderSpots() {
   const list = state.spots.map(s => ({ ...s, d: (me && s.lat != null) ? km(me, s) : null }))
@@ -1197,7 +1271,7 @@ document.addEventListener("click", ev => {
 
 // ================= Rendu global =================
 function renderAll(fit) {
-  renderTicket(); drawMap(fit); renderCarnet(); renderDepenses(); renderSpots(); renderStamps();
+  renderTicket(); drawMap(fit); renderCarnet(); renderDepenses(); renderSpots(); renderStamps(); renderValise(); renderReel();
   $("recap").textContent = recapText();
 }
 
