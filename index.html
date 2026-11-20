@@ -356,6 +356,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .rc-strip{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;white-space:normal;-webkit-overflow-scrolling:touch}
 .rc-strip img{width:64px;height:64px;object-fit:cover;border-radius:8px;flex:0 0 auto;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .rc-list{white-space:normal}
+#rcToReel.ready,#rcToStory.ready{background:#1f9d55;color:#fff}
 .rc-ed{outline:none;border-radius:6px;-webkit-user-select:text;user-select:text;cursor:text}
 .rc-ed:focus{background:#fff7dc;box-shadow:0 0 0 2px #f1d98a}
 .song-row{display:flex;gap:6px;margin:4px 0 6px}.song-row input{flex:1;min-width:0}.song-row .btn{width:auto;padding:0 14px;margin:0}
@@ -2674,8 +2675,8 @@ function montageBrief(e, list, names_, o = {}) {
   const fileOf = m => { const i = list.indexOf(m); return i >= 0 && names_[i] ? names_[i] : null; };
   const ms = list;
   const recapPart = r ? `
-RÉCAP DÉJÀ ÉCRIT (à suivre)
-${r.journal ? "Journal : " + r.journal + "\n" : ""}${kind === "story" && r.story && r.story.length ? "\nSTORY — une diapo par ligne (fichier → texte à l'écran)\n" + r.story.map((x, i) => { const m = rcMoment(x, i, ms, "story"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(photo au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${kind === "reel" && r.plans && r.plans.length ? "\nPLANS DU REEL (fichier → durée et idée)\n" + r.plans.map((x, i) => { const m = rcMoment(x, i, ms, "plans"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${r.legende ? "\nLégende : " + r.legende + "\n" : ""}${r.hashtags ? "Hashtags : " + r.hashtags.join(" ") + "\n" : ""}${r.musique ? "Musique : " + r.musique + "\n" : ""}` : "";
+PLAN DE MONTAGE — UNIQUEMENT POUR LES PHOTOS JOINTES
+${r.journal ? "Journal : " + r.journal + "\n" : ""}${kind === "story" && r.story && r.story.length ? "\nSTORY — une diapo par ligne (fichier → texte à l'écran)\n" + r.story.map((x, i) => { const m = rcMoment(x, i, ms, "story"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(photo au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${kind === "reel" && r.plans && r.plans.length ? "\nPLANS DU REEL (fichier → durée et idée)\n" + r.plans.map((x, i) => { const m = rcMoment(x, i, ms, "plans"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${r.accroche ? "\nTitre d'ouverture : " + r.accroche + "\n" : ""}${r.fin ? "Texte de fin : " + r.fin + "\n" : ""}${r.legende ? "\nLégende : " + r.legende + "\n" : ""}${r.hashtags ? "Hashtags : " + r.hashtags.join(" ") + "\n" : ""}${r.musique ? "Musique : " + r.musique + "\n" : ""}` : "";
   const n = list.length, durReel = n <= 6 ? "12 à 18 s" : n <= 12 ? "18 à 25 s" : "25 à 30 s";
   const ask = (kind === "story"
     ? `Crée-moi une STORY Instagram en VIDÉO verticale MP4 (9:16, 1080×1920, 30 i/s) de 15 s maximum (la durée d'une story) : 4 à 6 moments forts, environ 2,5 à 3 s chacun, en suivant les textes de story ci-dessous.`
@@ -2944,6 +2945,30 @@ function recapHtml(r) {
   return `<p class="pos-status" style="text-align:left;margin:10px 0 0">✏️ Touche un texte pour le modifier : il est enregistré automatiquement.</p><div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
 }
 const rcOff = new Set();
+let packReady = null;
+// Plan de montage écrit pour LES photos choisies (numéros = ordre des photos envoyées)
+async function montagePlan(e, list, kind, r) {
+  const fromRecap = () => { // sans IA : on garde du récap seulement ce qui concerne les photos choisies
+    if (!r) return null;
+    const full = recapMoments(e), pick = k => (r[k] || []).map((x, i) => { const m = rcMoment(x, i, full, k); const j = m ? list.indexOf(m) : -1; return j >= 0 ? { m: j + 1, d: typeof x === "object" ? x.d : "", t: rcText(typeof x === "object" ? { t: x.t } : x).replace(/^\s*\d+\s*[—\-]\s*/, "") } : null; }).filter(Boolean);
+    return { plans: pick("plans"), story: pick("story"), legende: r.legende, hashtags: r.hashtags, musique: r.musique };
+  };
+  if (!hasAi()) return fromRecap();
+  try {
+    const lines = list.map((m, i) => `${i + 1}. ${new Date(m.ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} · ${m.lieu || "Moment"}${m.place ? " · " + m.place : ""}${m.note ? " · note : " + m.note : ""}${m.video ? " · VIDÉO " + fmtDur(m.dur) : ""}${tagsOf(m).length ? " · " + tagsOf(m).map(k => TAGS[k] ? TAGS[k][1] : k).join(", ") : ""}`).join("\n");
+    const content = [{ type: "text", text: `Tu prépares le montage d'${kind === "story" ? "une STORY Instagram (vidéo de 15 s max, 4 à 6 diapos)" : "un REEL Instagram (vidéo 9:16 de 12 à 30 s)"} pour un couple en voyage (${names(e).join(" → ")}).
+Utilise UNIQUEMENT ces ${list.length} photos, numérotées dans l'ordre (les images suivent dans le même ordre) :
+${lines}
+Écris des textes qui parlent de CE QU'ON VOIT sur chaque photo et des notes, avec humour et complicité, en français. Rien sur des photos ou des lieux absents de la liste.
+JSON : {"accroche":"titre d'ouverture (5 mots max)",${kind === "story" ? `"story":[{"m":numéro de la photo,"t":"texte court à l'écran (5 mots max) + emoji"}]` : `"plans":[{"m":numéro de la photo,"d":"durée ex 1.5s","t":"cadrage/effet + texte à l'écran (5 mots max) + emoji"}] (toutes les photos, dans l'ordre, chacune une fois)`},"legende":"légende Instagram 1 à 2 phrases","hashtags":["#…"],"fin":"texte de fin court"}` }];
+    for (const m of list.slice(0, 14)) if (safeImg(m.photo)) content.push({ type: "image_url", image_url: { url: await resizePhoto(dataUrlToFile(m.photo, "p.jpg"), 384, 0.6), detail: "low" } });
+    const o = await ai([{ role: "user", content }], true);
+    const ok = x => x && +x.m >= 1 && +x.m <= list.length;
+    const rr = { plans: (o.plans || []).filter(ok), story: (o.story || []).filter(ok), legende: o.legende, hashtags: o.hashtags, accroche: o.accroche, fin: o.fin, musique: r && r.musique };
+    if (!rr.plans.length && !rr.story.length) return fromRecap();
+    return rr;
+  } catch (er) { return fromRecap(); }
+}
 // ---------- Musique : recherche comme sur Instagram (catalogue Deezer, extraits 30 s, tempo) ----------
 function getSong() { const v = localStorage.getItem("esc-song") || ""; try { const o = JSON.parse(v); if (o && o.t) return o; } catch (e) {} return v ? { t: v } : null; }
 function setSong(o) { o ? localStorage.setItem("esc-song", JSON.stringify(o)) : localStorage.removeItem("esc-song"); }
@@ -3110,15 +3135,26 @@ function bindRecapCopy(r) {
   const cb = $("rcCopyBrief"); if (cb) cb.onclick = async () => { try { await navigator.clipboard.writeText(lastBrief); toast("Brief copié ✓ · colle-le dans Claude"); } catch (er) { toast("Copie impossible"); } };
   ["rcToReel", "rcToStory"].forEach(id => { const b = $(id); if (b) b.onclick = async () => {
     const e = active(), list = recapMoments(e).filter(m => !rcOff.has(m.id)); if (!list.length) return toast("Choisis au moins une photo");
-    const kind = id === "rcToStory" ? "story" : "reel", lbl = b.textContent; b.disabled = true; b.textContent = "Préparation…";
+    const kind = id === "rcToStory" ? "story" : "reel", lbl = kind === "story" ? "📱 Story" : "🎬 Reel vidéo";
+    const period = recapDay === "all" ? "Tout le séjour" : dayLabel(recapDay);
+    const key = kind + "|" + recapDay + "|" + list.map(m => m.id).join(",") + "|" + songText(getSong());
+    // 2e appui : le pack est prêt, on partage tout de suite (iOS exige un appui juste avant le partage)
+    if (packReady && packReady.key === key) {
+      const pr = packReady; packReady = null; b.textContent = lbl; b.classList.remove("ready");
+      try { await sharePack(pr.brief, pr.files, pr.title); } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
+      return;
+    }
+    b.disabled = true; b.textContent = "Préparation des photos…";
     try {
-      const { files, fnames } = await packFiles(list);
-      const period = recapDay === "all" ? "Tout le séjour" : dayLabel(recapDay);
       if (songAudio) songAudio.pause();
-      const song = songText(getSong());
-      await sharePack(montageBrief(e, list, fnames, { kind, r, period, km: recapKm(e), song }), files, (kind === "story" ? "Story · " : "Reel · ") + names(e)[1] + " · " + period);
-    } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
-    b.disabled = false; b.textContent = lbl;
+      const { files, fnames } = await packFiles(list);
+      if (hasAi()) b.textContent = "L'IA écrit le montage pour ces photos…";
+      const rr = await montagePlan(e, list, kind, r);
+      const brief = montageBrief(e, list, fnames, { kind, r: rr, period, km: recapKm(e), song: songText(getSong()) });
+      packReady = { key, brief, files, title: (kind === "story" ? "Story · " : "Reel · ") + names(e)[1] + " · " + period };
+      b.disabled = false; b.textContent = "📤 Prêt : touche pour envoyer"; b.classList.add("ready");
+      toast(`${list.length} photo(s) prêtes · touche « Envoyer »`);
+    } catch (er) { toast(er.message || "Préparation impossible"); b.disabled = false; b.textContent = lbl; }
   }; });
   $("recapOut").querySelectorAll("[data-rcm]").forEach(im => im.onclick = () => { closeSheet("sheetRecap"); openViewer(im.dataset.rcm); });
   const sh = $("rcShare");
@@ -3769,7 +3805,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v70";
+const VERSION = "v71";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
