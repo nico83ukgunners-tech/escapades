@@ -1367,6 +1367,28 @@ async function fillPlace(force) {
 }
 $("momPlaceBtn").onclick = () => fillPlace(true);
 
+// Lieu écrit à la main → on le cherche et on place le moment au bon endroit sur la carte
+async function geocodePlace(q) {
+  const near = me || pick || photoPos;
+  const vb = near ? `&viewbox=${near.lng - 1},${near.lat + 1},${near.lng + 1},${near.lat - 1}` : "";
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=fr${vb}&q=${encodeURIComponent(q)}`);
+  const j = await r.json();
+  return j && j[0] ? { lat: +j[0].lat, lng: +j[0].lon, label: j[0].display_name } : null;
+}
+let placeTyped = false;
+$("momPlace").addEventListener("input", () => { placeTyped = true; });
+$("momPlace").addEventListener("change", async () => {
+  const q = $("momPlace").value.trim();
+  if (!placeTyped || q.length < 3) return;
+  placeTyped = false;
+  $("momExif").textContent = "Recherche de « " + q + " »…";
+  try {
+    const g = await geocodePlace(q);
+    if (g) { photoPos = { lat: g.lat, lng: g.lng }; $("momExif").textContent = "📍 Placé sur la carte : " + g.label.split(",").slice(0, 3).join(","); }
+    else $("momExif").textContent = "Lieu introuvable sur la carte : il sera gardé en texte, à ta position actuelle";
+  } catch (e) { $("momExif").textContent = "Pas de réseau : le lieu est gardé en texte"; }
+});
+
 function renderMomTags() {
   $("momTags").innerHTML = Object.entries(TAGS).map(([k, [ic, l]]) => `<button class="chip ${momTags.has(k) ? "on" : ""}" data-tag="${k}">${ic} ${l}</button>`).join("");
   $("momTags").querySelectorAll("[data-tag]").forEach(b => b.onclick = () => {
@@ -1391,7 +1413,7 @@ function openMomentSheet(editId) {
   pendingVideo = null; keepVideo = m && m.video ? { key: m.video, dur: m.dur } : null;
   momTags = new Set(m ? tagsOf(m) : []); momRating = m ? (m.rating || 0) : 0; momWho = m ? (m.par ?? "both") : "both";
   $("momPlace").value = m ? (m.place || "") : "";
-  photoTs = null; photoPos = null; $("momExif").textContent = "";
+  photoTs = null; photoPos = null; placeTyped = false; $("momExif").textContent = "";
   $("momWhen").value = toLocalInput(m ? m.ts : Date.now());
   $("momLieu").value = m ? (m.lieu || "") : ""; $("momNote").value = m ? (m.note || "") : ""; $("momPhoto").value = "";
   $("momAiHint").textContent = "";
@@ -1451,7 +1473,7 @@ $("momPhoto").onchange = async ev => {
     const bits = [];
     if (photoTs) { $("momWhen").value = toLocalInput(photoTs); bits.push("🕒 prise le " + new Date(photoTs).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })); }
     if (photoPos) { bits.push("📍 lieu de la photo trouvé"); $("momPlace").value = ""; fillPlace(); setPos("📷 Position lue dans la photo"); }
-    $("momExif").textContent = bits.length ? "Lu dans la photo : " + bits.join(" · ") : "Pas d'heure ni de lieu dans cette photo : vérifie « Quand » et « Lieu »";
+    $("momExif").textContent = bits.length ? "Lu dans la photo : " + bits.join(" · ") : "Pas d'heure ni de lieu dans cette photo : écris le lieu (il sera placé sur la carte) et règle « Quand »";
   } catch (e) { toast(e.message); }
 };
 // ✨ L'IA propose un titre et des thèmes à partir de la note (et de la photo)
@@ -2417,7 +2439,7 @@ $("recapCard").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v26";
+const VERSION = "v27";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
