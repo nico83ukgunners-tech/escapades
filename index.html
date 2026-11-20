@@ -2527,8 +2527,17 @@ function dataUrlToFile(u, name) {
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return new File([arr], name, { type: mime });
 }
-function montageBrief(e, list, names_) {
-  const st = moveStats(e);
+function montageBrief(e, list, names_, o = {}) {
+  const st = o.km || moveStats(e), r = o.r, kind = o.kind || "reel";
+  const fileOf = m => { const i = list.indexOf(m); return i >= 0 && names_[i] ? names_[i] : null; };
+  const ms = list;
+  const recapPart = r ? `
+RÉCAP DÉJÀ ÉCRIT (à suivre)
+${r.journal ? "Journal : " + r.journal + "\n" : ""}${kind === "story" && r.story && r.story.length ? "\nSTORY — une diapo par ligne (fichier → texte à l'écran)\n" + r.story.map((x, i) => { const m = rcMoment(x, i, ms, "story"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(photo au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${kind === "reel" && r.plans && r.plans.length ? "\nPLANS DU REEL (fichier → durée et idée)\n" + r.plans.map((x, i) => { const m = rcMoment(x, i, ms, "plans"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${r.legende ? "\nLégende : " + r.legende + "\n" : ""}${r.hashtags ? "Hashtags : " + r.hashtags.join(" ") + "\n" : ""}${r.musique ? "Musique : " + r.musique + "\n" : ""}` : "";
+  const ask = kind === "story"
+    ? `Crée-moi une Story Instagram (9:16, 1080×1920) : une image par diapo avec la photo et le texte à l'écran ci-dessous, style carnet de voyage (bandeau titre, annotations manuscrites, date, lieu). Rends-moi les images prêtes à poster.`
+    : r && r.plans ? `Crée-moi la vidéo du Reel Instagram vertical (9:16, 1080×1920, 30 à 45 s) en suivant les plans ci-dessous : chaque fichier à sa place, avec sa durée, les textes à l'écran, des transitions dynamiques, un titre d'ouverture et une fin. Rends-moi le fichier vidéo MP4 prêt à poster.`
+    : `Crée-moi la vidéo du Reel Instagram vertical (9:16, 1080×1920, 30 à 45 s) avec ces médias dans l'ordre : découpage plan par plan, textes à l'écran courts avec le ton des notes, transitions, titre d'ouverture et fin. Mets en avant les moments 🎬 et ❤️❤️❤️. Rends-moi le fichier vidéo MP4 prêt à poster.`;
   const lines = list.map((m, i) => {
     const t = new Date(m.ts);
     return `${String(i + 1).padStart(2, "0")} · ${t.toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
@@ -2536,16 +2545,13 @@ function montageBrief(e, list, names_) {
    Titre : ${m.lieu || "—"}${m.place ? `\n   Lieu : ${m.place}` : ""}${m.note ? `\n   Note : ${m.note}` : ""}${tagsOf(m).length ? `\n   Thèmes : ${tagsOf(m).map(k => TAGS[k] ? TAGS[k][0] + " " + TAGS[k][1] : k).join(", ")}` : ""}${m.rating ? `\n   Coup de cœur : ${"❤️".repeat(m.rating)}` : ""}`;
   }).join("\n\n");
   return `PACK MONTAGE — ${names(e).join(" → ").toUpperCase()}
-${fmt(e.debut, { day: "numeric", month: "long", year: "numeric" })} · ${list.length} moments · 🚆 ${f1(st.transport)} km en transport · 🚶 ${f1(st.pied)} km à pied
+${o.period || fmt(e.debut, { day: "numeric", month: "long", year: "numeric" })} · ${list.length} moments · 🚆 ${f1(st.transport)} km en transport · 🚶 ${f1(st.pied)} km à pied
 
 DEMANDE À CLAUDE
-Aide-moi à monter un Reel Instagram vertical (9:16) de 30 à 45 secondes avec ces médias, dans l'ordre chronologique ci-dessous.
-- Propose un découpage plan par plan (durée de chaque plan, transitions, rythme).
-- Mets en avant les moments 🎬 (décor Reel) et ❤️❤️❤️ ou plus ; les autres peuvent être plus courts ou coupés.
-- Écris les textes à l'écran (courts, avec le ton des notes), un titre d'ouverture et une fin.
-- Suggère une ambiance musicale et la légende Instagram avec hashtags.
-
-MOMENTS
+${ask}
+Les fichiers joints sont numérotés dans l'ordre chronologique (le nom indique l'heure et le titre du moment).
+${recapPart}
+MOMENTS (détail)
 ${lines}
 `;
 }
@@ -2555,6 +2561,12 @@ $("btnMontage").onclick = async () => {
   try {
     const list = state.moments.filter(m => m.escId === e.id).sort((a, b) => a.ts - b.ts);
     if (!list.length) throw new Error("Ajoute d'abord des moments au carnet");
+    const { files, fnames } = await packFiles(list);
+    await sharePack(montageBrief(e, list, fnames), files, "Pack montage · " + names(e)[1]);
+  } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
+  btn.disabled = false; btn.textContent = "📤 Envoyer à Claude pour le montage";
+};
+async function packFiles(list) {
     const files = [], fnames = [];
     for (let i = 0; i < list.length; i++) {
       const m = list[i], t = new Date(m.ts), base = `${String(i + 1).padStart(2, "0")}_${String(t.getHours()).padStart(2, "0")}h${String(t.getMinutes()).padStart(2, "0")}_${slug(m.lieu)}`;
@@ -2564,17 +2576,17 @@ $("btnMontage").onclick = async () => {
       fnames.push(f ? f.name : ""); if (f) files.push(f);
       (m.extra || []).forEach((u, k) => { if (safeImg(u)) files.push(dataUrlToFile(u, `${base}_${String.fromCharCode(98 + k % 25)}.jpg`)); });
     }
-    const brief = montageBrief(e, list, fnames);
-    const all = [new File([brief], "00_brief-montage.txt", { type: "text/plain" }), ...files];
-    if (navigator.canShare && navigator.canShare({ files: all })) {
-      await navigator.share({ files: all, title: "Pack montage · " + names(e)[1], text: "Brief et médias pour le montage du Reel" });
-    } else {
-      try { await navigator.clipboard.writeText(brief); } catch (er) {}
-      toast("Partage de fichiers non disponible : le brief est copié, colle-le dans Claude avec tes photos");
-    }
-  } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
-  btn.disabled = false; btn.textContent = "📤 Envoyer à Claude pour le montage";
-};
+    return { files, fnames };
+}
+// Partage : brief texte + médias ; le brief est aussi copié pour pouvoir le coller dans Claude
+async function sharePack(brief, files, title) {
+  try { await navigator.clipboard.writeText(brief); } catch (er) {}
+  const all = [new File([brief], "00_brief-montage.txt", { type: "text/plain" }), ...files];
+  if (navigator.canShare && navigator.canShare({ files: all })) {
+    toast("Choisis Claude dans le partage · le brief est aussi copié");
+    await navigator.share({ files: all, title });
+  } else toast("Partage de fichiers non disponible : le brief est copié, colle-le dans Claude avec tes photos");
+}
 
 // ================= Météo (Open-Meteo, gratuit, sans clé) =================
 const WX = c => c === 0 ? "☀️" : c <= 2 ? "🌤️" : c === 3 ? "☁️" : c <= 48 ? "🌫️" : c <= 57 ? "🌦️" : c <= 67 ? "🌧️" : c <= 77 ? "🌨️" : c <= 82 ? "🌧️" : c <= 86 ? "🌨️" : "⛈️";
@@ -2738,9 +2750,22 @@ function recapHtml(r) {
   const block = (t, v, k) => v ? `<h4>${t}</h4><div>${esc(v)}</div><button class="link" data-copy="${k}">Copier</button>` : "";
   const strip = ms.filter(m => safeImg(m.photo));
   const lst = (t, arr, k) => arr && arr.length ? `<h4>${t}</h4>${rcList(arr, k, ms)}<button class="link" data-copy="${k}">Copier les textes</button>${k === "plans" && strip.length ? ` · <button class="link" id="rcShare">📤 Envoyer les photos dans l'ordre</button>` : ""}` : "";
-  return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
+  return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>
+  <div class="sub" style="margin-top:14px">ENVOYER À CLAUDE POUR LE MONTAGE</div>
+  <div class="row2"><button class="btn ai-btn" id="rcToReel">🎬 Reel vidéo</button><button class="btn" id="rcToStory">📱 Story</button></div>
+  <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude. Le texte est aussi copié : colle-le si besoin.</p>`;
 }
 function bindRecapCopy(r) {
+  ["rcToReel", "rcToStory"].forEach(id => { const b = $(id); if (b) b.onclick = async () => {
+    const e = active(), list = recapMoments(e); if (!list.length) return toast("Pas de moments sur cette période");
+    const kind = id === "rcToStory" ? "story" : "reel", lbl = b.textContent; b.disabled = true; b.textContent = "Préparation…";
+    try {
+      const { files, fnames } = await packFiles(list);
+      const period = recapDay === "all" ? "Tout le séjour" : dayLabel(recapDay);
+      await sharePack(montageBrief(e, list, fnames, { kind, r, period, km: recapKm(e) }), files, (kind === "story" ? "Story · " : "Reel · ") + names(e)[1] + " · " + period);
+    } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
+    b.disabled = false; b.textContent = lbl;
+  }; });
   $("recapOut").querySelectorAll("[data-rcm]").forEach(im => im.onclick = () => { closeSheet("sheetRecap"); openViewer(im.dataset.rcm); });
   const sh = $("rcShare");
   if (sh) sh.onclick = async () => {
@@ -3316,7 +3341,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v50";
+const VERSION = "v51";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
