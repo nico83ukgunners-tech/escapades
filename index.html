@@ -469,6 +469,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
       <input id="momPlace" placeholder="Bar Mario, Ventimiglia">
       <button class="ai-mini" id="momPlaceBtn" style="background:var(--navy)" aria-label="Lieu depuis le GPS">📍</button>
     </div>
+    <label class="f">Quand</label>
+    <input id="momWhen" type="datetime-local">
+    <div class="ai-hint" id="momExif" style="color:var(--green)"></div>
     <label class="f">Thèmes</label>
     <div class="tagchips" id="momTags"></div>
     <label class="f">Coup de cœur</label>
@@ -567,6 +570,7 @@ let currentTab = "carte", dep = null;
 let me = null, pick = null, map, layer, pickMarker = null;
 let watchId = null, wakeLock = null;
 let editEscId = null, pendingPhoto = null, carnetFilter = "tous";
+let carnetOrder = "voyage";
 let momTags = new Set(), momRating = 0, momWho = "both", editMomentId = null;
 const TAGS = {
   sympa: ["⭐", "Endroit sympa"], reel: ["🎬", "Décor photo / Reel"], food: ["🍝", "Bonne table"], apero: ["🍹", "Apéro"],
@@ -899,6 +903,20 @@ function resizePhoto(file) {
     img.src = URL.createObjectURL(file);
   });
 }
+// Heure et lieu lus dans la photo (EXIF) pour ranger les moments dans l'ordre réel
+let photoTs = null, photoPos = null;
+const toLocalInput = ts => { const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+async function readExif(file) {
+  try {
+    if (!window.exifr) await loadScript("https://cdn.jsdelivr.net/npm/exifr@7/dist/lite.umd.js");
+    const x = await exifr.parse(file, { gps: true, pick: ["DateTimeOriginal", "CreateDate", "latitude", "longitude"] });
+    if (!x) return {};
+    const dt = x.DateTimeOriginal || x.CreateDate;
+    return { ts: dt instanceof Date && !isNaN(dt) ? dt.getTime() : null,
+             pos: (typeof x.latitude === "number" && typeof x.longitude === "number") ? { lat: x.latitude, lng: x.longitude } : null };
+  } catch (e) { return {}; }
+}
+
 // Lieu depuis le GPS (OpenStreetMap Nominatim, gratuit, sans clé)
 async function reverseGeocode(lat, lng) {
   const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fr`);
@@ -910,10 +928,11 @@ async function reverseGeocode(lat, lng) {
   return [...new Set(parts)].slice(0, 3).join(", ");
 }
 async function fillPlace(force) {
-  if (!pick) { if (force) locate(() => fillPlace(true)); return; }
+  const where = photoPos || pick;
+  if (!where) { if (force) locate(() => fillPlace(true)); return; }
   if (!force && $("momPlace").value.trim()) return;
   $("momPlace").placeholder = "Recherche du lieu…";
-  try { const p = await reverseGeocode(pick.lat, pick.lng); if (p && (force || !$("momPlace").value.trim())) $("momPlace").value = p; }
+  try { const p = await reverseGeocode(where.lat, where.lng); if (p && (force || !$("momPlace").value.trim())) $("momPlace").value = p; }
   catch (e) { if (force) toast("Lieu introuvable, écris-le à la main"); }
   $("momPlace").placeholder = "Bar Mario, Ventimiglia";
 }
@@ -942,6 +961,8 @@ function openMomentSheet(editId) {
   pendingPhoto = m ? safeImg(m.photo) : null;
   momTags = new Set(m ? tagsOf(m) : []); momRating = m ? (m.rating || 0) : 0; momWho = m ? (m.par ?? "both") : "both";
   $("momPlace").value = m ? (m.place || "") : "";
+  photoTs = null; photoPos = null; $("momExif").textContent = "";
+  $("momWhen").value = toLocalInput(m ? m.ts : Date.now());
   $("momLieu").value = m ? (m.lieu || "") : ""; $("momNote").value = m ? (m.note || "") : ""; $("momPhoto").value = "";
   $("momAiHint").textContent = "";
   setPhotoPreview(pendingPhoto);
@@ -958,8 +979,15 @@ $("fab").onclick = () => currentTab === "depenses" ? openDepSheet() : openMoment
 $("momAi").onclick = () => aiTitle(false);
 $("momPhoto").onchange = async ev => {
   try {
-    pendingPhoto = await resizePhoto(ev.target.files[0]);
+    const file = ev.target.files[0];
+    pendingPhoto = await resizePhoto(file);
     setPhotoPreview(pendingPhoto);
+    const x = await readExif(file);
+    photoTs = x.ts || null; photoPos = x.pos || null;
+    const bits = [];
+    if (photoTs) { $("momWhen").value = toLocalInput(photoTs); bits.push("🕒 prise le " + new Date(photoTs).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })); }
+    if (photoPos) { bits.push("📍 lieu de la photo trouvé"); $("momPlace").value = ""; fillPlace(); setPos("📷 Position lue dans la photo"); }
+    $("momExif").textContent = bits.length ? "Lu dans la photo : " + bits.join(" · ") : "Pas d'heure ni de lieu dans cette photo : vérifie « Quand » et « Lieu »";
   } catch (e) { toast(e.message); }
 };
 // ✨ L'IA propose un titre et des thèmes à partir de la note (et de la photo)
@@ -993,9 +1021,12 @@ $("momSave").onclick = async () => {
   const btn = $("momSave");
   if (!lieu && hasAi()) { btn.disabled = true; btn.textContent = "L'IA trouve un titre…"; await aiTitle(true); lieu = $("momLieu").value.trim(); btn.disabled = false; }
   const tags = [...momTags];
-  const data = { lieu, place: $("momPlace").value.trim(), note, photo: pendingPhoto, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: momRating, par: momWho };
+  const whenTs = $("momWhen").value ? new Date($("momWhen").value).getTime() : NaN;
+  const ts = !isNaN(whenTs) ? whenTs : Date.now();
+  const data = { ts, date: toLocalInput(ts).slice(0, 10), lieu, place: $("momPlace").value.trim(), note, photo: pendingPhoto, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: momRating, par: momWho };
+  if (photoPos) Object.assign(data, { lat: photoPos.lat, lng: photoPos.lng });
   if (editMomentId) Object.assign(state.moments.find(x => x.id === editMomentId), data);
-  else state.moments.push({ id: uid(), escId: e.id, ...data, lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, date: today(), ts: Date.now() });
+  else state.moments.push({ id: uid(), escId: e.id, lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, ...data });
   if (!editMomentId) { pick = null; if (pickMarker) { map.removeLayer(pickMarker); pickMarker = null; } }
   const wasEdit = !!editMomentId; editMomentId = null;
   save(); closeSheet("sheetMoment"); renderAll(); show("carnet");
@@ -1014,7 +1045,9 @@ function renderCarnet() {
   $("filters").querySelectorAll("[data-filter]").forEach(c => c.onclick = () => { carnetFilter = c.dataset.filter; renderCarnet(); });
   if (carnetFilter === "top") list = list.filter(m => m.rating >= 4);
   else if (carnetFilter !== "tous") list = list.filter(m => tagsOf(m).includes(carnetFilter));
-  list.sort((a, b) => b.ts - a.ts);
+  list.sort((a, b) => carnetOrder === "voyage" ? a.ts - b.ts : b.ts - a.ts);
+  $("filters").insertAdjacentHTML("beforeend", `<button class="chip" id="orderChip">${carnetOrder === "voyage" ? "↓ Ordre du voyage" : "↑ Plus récents"}</button>`);
+  $("orderChip").onclick = () => { carnetOrder = carnetOrder === "voyage" ? "recent" : "voyage"; renderCarnet(); };
   if (!list.length) {
     $("polas").innerHTML = `<div class="empty"><b>Le carnet est vide</b>
       Appuie sur le bouton <b style="display:inline;color:var(--red)">+</b> rouge pour coller un premier moment.</div>`;
@@ -1571,7 +1604,7 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v16";
+const VERSION = "v17";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
