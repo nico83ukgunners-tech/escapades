@@ -404,9 +404,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div class="movestats" id="moveStats"></div>
     <div class="row2">
       <button class="btn light" id="btnSante">🩺 Pas du jour</button>
-      <label class="btn ai-btn" style="text-align:center">📸 Lire une capture<input id="capFile" type="file" accept="image/*" hidden></label>
+      <button class="btn light" id="btnTraj">🗺️ Trajets Google</button>
     </div>
-    <div class="pos-status" id="capHint"></div>
+    <div class="pos-status">Capture d'écran ou saisie à la main, pour des km exacts</div>
     <button class="btn red" id="btnReplay">🎬 Rejouer le voyage</button>
     <div class="pos-status">Tape sur la carte pour choisir un point</div>
 
@@ -699,17 +699,22 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
   </div>
 </div>
 
-<!-- ============ FEUILLE : CAPTURE LUE PAR L'IA ============ -->
-<div class="sheet" id="sheetCap">
+<!-- ============ FEUILLE : TRAJETS GOOGLE ============ -->
+<div class="sheet" id="sheetTraj">
   <div class="panel">
     <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
-    <div class="sub">CAPTURE D'ÉCRAN</div>
-    <h3 id="capTitle">Ce que j'ai lu</h3>
+    <div class="sub">GOOGLE MAPS · VOS TRAJETS</div>
+    <h3>Trajets du jour</h3>
+    <label class="btn ai-btn" id="trajCapLbl" style="text-align:center">📸 Lire la capture Google Maps<input id="trajCap" type="file" accept="image/*" hidden></label>
+    <div class="pos-status" id="trajNoKey">Lecture de capture avec la clé IA uniquement : saisis les trajets à la main.</div>
+    <div class="pos-status">ou ajoute / corrige les trajets à la main</div>
     <label class="f">Jour</label>
-    <input id="capDay" type="date">
-    <div id="capBody"></div>
-    <button class="btn red" id="capSave">Enregistrer</button>
-    <button class="link" data-close>Annuler</button>
+    <input id="trajDay" type="date">
+    <div id="trajRows"></div>
+    <button class="btn light" id="trajAdd">＋ Ajouter un trajet</button>
+    <label class="row" style="gap:8px;margin-top:12px;font-size:14px"><input type="checkbox" id="trajPts" checked style="width:auto"> Placer les lieux de départ et d'arrivée sur la carte</label>
+    <p class="pos-status" style="text-align:left">Ces km remplacent ceux calculés par l'app pour ce jour (transport ; et marche si tu n'as pas mis tes pas Santé).</p>
+    <button class="btn red" id="trajSave">Enregistrer</button>
   </div>
 </div>
 
@@ -1977,9 +1982,7 @@ const AI_KEY = "escapades-ai";
 let aiCfg = { key: "", model: "gpt-5-mini" };
 try { aiCfg = { ...aiCfg, ...JSON.parse(localStorage.getItem(AI_KEY) || "{}") }; } catch (e) {}
 const hasAi = () => !!aiCfg.key;
-function capHintUI() { const h = $("capHint"); if (h) h.textContent = hasAi() ? "Capture de l'app Santé (pas, km) ou de Google Maps « Vos trajets »" : "Sans clé IA : captures de l'app Santé uniquement (pas, km)"; }
 function aiUI() {
-  setTimeout(capHintUI, 0);
   $("aiKey").value = aiCfg.key ? "••••••••" + aiCfg.key.slice(-4) : "";
   $("aiModel").value = aiCfg.model || "gpt-5-mini";
   $("aiStatus").textContent = hasAi() ? "✓ Clé enregistrée sur ce téléphone" : "Aucune clé : les fonctions ✨ sont masquées";
@@ -2588,36 +2591,18 @@ $("recapCard").onclick = async () => {
   btn.disabled = false; btn.textContent = "🖼️ Carte postale pour la story";
 };
 
-// ================= Pas du jour (app Santé / Raccourci) =================
-function fillSante(day) {
-  const e = active(), v = (e && e.health && e.health[day]) || {};
+// ================= Pas du jour (app Santé) =================
+function fillSante(day, vals) {
+  const e = active(), v = vals || (e && e.health && e.health[day]) || {};
   $("santeDay").value = day; $("santePas").value = v.pas || ""; $("santeKm").value = v.km || "";
-  $("santeDel").hidden = !(v.pas || v.km);
+  $("santeDel").hidden = !(e && e.health && e.health[day]);
 }
-function openSante() {
+function openSante(day, vals) {
   const e = active(); if (!e) return openEscSheet();
-  fillSante(dayKey(Date.now())); openSheet("sheetSante");
+  fillSante(day || dayKey(Date.now()), vals); openSheet("sheetSante");
 }
-$("btnSante").onclick = openSante;
+$("btnSante").onclick = () => openSante();
 $("santeDay").onchange = () => fillSante($("santeDay").value);
-function parseSante(txt) {
-  // Format du Raccourci : ESCPAS;2026-11-20;12345;8,4   (accepte aussi juste un nombre de pas)
-  const t = String(txt || "").trim();
-  const m = t.match(/ESCPAS\s*;\s*(\d{4}-\d{2}-\d{2})\s*;\s*([\d\s\u202f.,]*)\s*;?\s*([\d.,]*)/i);
-  if (m) return { day: m[1], pas: parseInt(m[2].replace(/[^\d]/g, "")) || 0, km: parseFloat((m[3] || "").replace(",", ".")) || 0 };
-  const n = parseInt(t.replace(/[^\d]/g, "")); return n ? { pas: n } : null;
-}
-$("santeCap").onchange = ev => { closeSheet("sheetSante"); $("capFile").onchange(ev); };
-const _unusedPaste = async () => {
-  try {
-    const r = parseSante(await navigator.clipboard.readText());
-    if (!r) return toast("Rien à coller : lance d'abord le Raccourci « Pas Escapades »");
-    if (r.day) $("santeDay").value = r.day;
-    if (r.pas) $("santePas").value = r.pas;
-    if (r.km) $("santeKm").value = Math.round(r.km * 10) / 10;
-    toast("Collé ✓ Vérifie puis enregistre");
-  } catch (er) { toast("Collage refusé : appuie longuement dans le champ Pas puis « Coller »"); }
-};
 $("santeSave").onclick = () => {
   const e = active(); if (!e) return;
   const day = $("santeDay").value || dayKey(Date.now());
@@ -2630,27 +2615,14 @@ $("santeDel").onclick = function () {
   confirmTap(this, () => { const e = active(); if (e && e.health) delete e.health[$("santeDay").value]; save(); closeSheet("sheetSante"); renderAll(); });
 };
 
-// ================= Lire une capture (Santé / Google Maps) avec l'IA =================
+// ================= Captures (Santé / Google Maps) : IA si clé, sinon lecture sur le téléphone pour Santé =================
 const MODES = { marche: "🚶 Marche", train: "🚆 Train", metro: "🚇 Métro", tram: "🚊 Tram", bus: "🚌 Bus", voiture: "🚗 Voiture", velo: "🚲 Vélo", bateau: "⛴️ Bateau", avion: "✈️ Avion" };
-let capData = null;
 // Nombres écrits à la française ou à l'anglaise : "3 395", "3.395", "2,29", 2.29
 function num(v) {
   if (typeof v === "number") return isFinite(v) ? v : 0;
-  let t = String(v || "").replace(/[\s\u202f\u00a0]/g, "").replace(/[^\d.,-]/g, "");
-  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) t = t.replace(/[.,]/g, "");      // séparateur de milliers
+  let t = String(v || "").replace(/[\s  ]/g, "").replace(/[^\d.,-]/g, "");
+  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) t = t.replace(/[.,]/g, "");
   return parseFloat(t.replace(",", ".")) || 0;
-}
-// Sans clé : lecture des chiffres de l'app Santé directement sur le téléphone (Tesseract)
-async function ocrSante(f) {
-  try {
-    if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
-    const img = await resizePhoto(f, 1600, 0.9);
-    const { data } = await Tesseract.recognize(img, "eng");
-    const r = parseSanteText(data.text);
-    if (!r.pas && !r.km_marche) return toast("Chiffres introuvables : saisis-les dans 🩺 Pas du jour");
-    capData = { type: "sante", date: null, ...r }; openCapSheet();
-    toast("Lu sans IA : vérifie les chiffres");
-  } catch (er) { toast("Lecture impossible : saisis les chiffres dans 🩺 Pas du jour"); }
 }
 function parseSanteText(t) {
   const txt = String(t || "").replace(/ | /g, " ");
@@ -2665,83 +2637,95 @@ function parseSanteText(t) {
     const m = clean.match(/\b(\d{1,2}[ .]\d{3}|\d{3,6})\b/);
     if (m) { const n = parseInt(m[1].replace(/[ .]/g, "")); if (n >= 50 && n <= 100000) { pas = n; break; } }
   }
-  return { pas, km_marche: kmM ? parseFloat(kmM[1].replace(",", ".")) : 0 };
+  return { pas, km: kmM ? parseFloat(kmM[1].replace(",", ".")) : 0 };
 }
-$("capFile").onchange = async ev => {
-  const f = ev.target.files[0]; ev.target.value = ""; if (!f) return;
+async function readCapture(f, expect) {
   const e = active(); if (!e) return openEscSheet();
   toast("Lecture de la capture…");
-  if (!hasAi()) return ocrSante(f);
+  if (!hasAi()) {
+    if (expect === "maps") return toast("Pour lire une capture Google Maps, il faut la clé IA. Tu peux saisir les trajets à la main.");
+    try {
+      if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+      const { data } = await Tesseract.recognize(await resizePhoto(f, 1600, 0.9), "eng");
+      const r = parseSanteText(data.text);
+      if (!r.pas && !r.km) return toast("Chiffres introuvables : tape-les à la main");
+      fillSante($("santeDay").value || dayKey(Date.now()), r); openSheet("sheetSante");
+      return toast("Lu sans IA : vérifie puis Enregistrer");
+    } catch (er) { return toast("Lecture impossible : tape les chiffres à la main"); }
+  }
   try {
     const img = await resizePhoto(f, 1500, 0.8);
     const r = await ai([{ role: "user", content: [
       { type: "text", text: `Lis cette capture d'écran d'iPhone. Nous sommes le ${dayKey(Date.now())}. C'est soit l'app Santé / Forme (pas, distance de marche), soit Google Maps « Vos trajets » (trajets de la journée), soit autre chose.
-Réponds en JSON : {"type":"sante"|"maps"|"autre","date":"AAAA-MM-JJ (\"Aujourd'hui\" = la date du jour) ou null","pas":nombre ou 0,"km_marche":nombre ou 0,
-"trajets":[{"mode":"marche|train|metro|tram|bus|voiture|velo|bateau|avion","km":nombre,"depart":"lieu ou vide","arrivee":"lieu ou vide","heure_depart":"HH:MM ou vide","heure_arrivee":"HH:MM ou vide"}]}
-Lis les nombres exactement (virgule = décimale). Pour Google Maps, liste chaque trajet affiché ; si un lieu de départ ou d'arrivée n'est pas écrit, laisse vide.` },
+Réponds en JSON avec des NOMBRES (pas de texte) : {"type":"sante"|"maps"|"autre","date":"AAAA-MM-JJ (\"Aujourd'hui\" = la date du jour) ou null","pas":0,"km_marche":0,
+"trajets":[{"mode":"marche|train|metro|tram|bus|voiture|velo|bateau|avion","km":0,"depart":"lieu ou vide","arrivee":"lieu ou vide","heure_depart":"HH:MM ou vide","heure_arrivee":"HH:MM ou vide"}]}
+Lis les nombres exactement (virgule = décimale, espace = milliers). Pour Google Maps, liste chaque trajet affiché ; si un lieu n'est pas écrit, laisse vide.` },
       { type: "image_url", image_url: { url: img } }] }], true);
-    if (!r || r.type === "autre") return toast("Je n'ai pas reconnu une capture Santé ou Google Maps");
-    capData = r; openCapSheet();
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(r.date || "") ? r.date : dayKey(Date.now());
+    if (r.type === "sante") { openSante(day, { pas: Math.round(num(r.pas)), km: num(r.km_marche) }); return toast("Lu ✓ Vérifie puis Enregistrer"); }
+    if (r.type === "maps") { openTrajets(day, (r.trajets || []).map(t => ({ ...t, mode: MODES[t.mode] ? t.mode : "voiture", km: num(t.km) }))); return toast("Lu ✓ Vérifie les modes puis Enregistrer"); }
+    toast(expect === "maps" ? "Ce n'est pas une capture Google Maps « Vos trajets »" : "Ce n'est pas une capture de l'app Santé");
   } catch (er) { toast(er.message); }
-};
-function openCapSheet() {
-  const r = capData;
-  $("capDay").value = /^\d{4}-\d{2}-\d{2}$/.test(r.date || "") ? r.date : dayKey(Date.now());
-  if (r.type === "sante") {
-    $("capTitle").textContent = "🩺 Activité du jour";
-    $("capBody").innerHTML = `<div class="row2" style="gap:10px">
-      <div><label class="f">Pas</label><input id="capPas" type="number" inputmode="numeric" value="${Math.round(num(r.pas)) || ""}"></div>
-      <div><label class="f">Km marche</label><input id="capKm" type="number" step="0.01" inputmode="decimal" value="${num(r.km_marche) || ""}"></div></div>
-      <p class="pos-status" style="text-align:left">Ces chiffres remplaceront l'estimation de marche de ce jour.</p>`;
-  } else {
-    $("capTitle").textContent = "🗺️ Trajets Google Maps";
-    const opts = v => Object.entries(MODES).map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${l}</option>`).join("");
-    $("capBody").innerHTML = (r.trajets || []).map((t, i) => `
-      <div class="card" style="padding:12px;margin:10px 0">
-        <div class="row2" style="gap:8px"><select data-cap="${i}" data-k="mode">${opts(MODES[t.mode] ? t.mode : "voiture")}</select>
-          <input data-cap="${i}" data-k="km" type="number" step="0.1" inputmode="decimal" value="${num(t.km)}" aria-label="km"></div>
-        <div class="pos-status" style="text-align:left">${esc(t.depart || "?")} ${t.heure_depart ? "(" + esc(t.heure_depart) + ")" : ""} → ${esc(t.arrivee || "?")} ${t.heure_arrivee ? "(" + esc(t.heure_arrivee) + ")" : ""}</div>
-      </div>`).join("") + `<p class="pos-status" style="text-align:left">Vérifie le mode : Google indique parfois « voiture » pour un train. Les km en transport de ce jour seront ceux-ci.</p>
-      <label class="row" style="gap:8px;margin-top:6px"><input type="checkbox" id="capPts" checked style="width:auto"> Ajouter les lieux de départ et d'arrivée au tracé de la carte</label>`;
-  }
-  openSheet("sheetCap");
 }
-$("capSave").onclick = async () => {
-  const e = active(); if (!e || !capData) return;
-  const day = $("capDay").value || dayKey(Date.now());
-  if (capData.type === "sante") {
-    const pas = Math.round(num($("capPas").value)), kmv = num($("capKm").value);
-    if (!pas && !kmv) return toast("Aucun chiffre lu : tape les pas ou les km avant d'enregistrer");
-    e.health = e.health || {}; e.health[day] = { pas, km: kmv };
-    save(); closeSheet("sheetCap"); renderAll(); return toast("🩺 Activité du " + dayLabel(day) + " enregistrée ✓");
+$("santeCap").onchange = ev => { const f = ev.target.files[0]; ev.target.value = ""; if (f) { closeSheet("sheetSante"); readCapture(f, "sante"); } };
+$("trajCap").onchange = ev => { const f = ev.target.files[0]; ev.target.value = ""; if (f) readCapture(f, "maps"); };
+
+// ================= Trajets Google (capture ou saisie à la main) =================
+let trajRows = [];
+function openTrajets(day, rows) {
+  const e = active(); if (!e) return openEscSheet();
+  day = day || dayKey(Date.now());
+  $("trajDay").value = day;
+  trajRows = rows ? rows.map(r => ({ ...r })) : ((e.maps && e.maps[day]) || []).map(r => ({ ...r }));
+  $("trajCapLbl").hidden = !hasAi(); $("trajNoKey").hidden = hasAi();
+  renderTraj(); openSheet("sheetTraj");
+}
+function renderTraj() {
+  const opts = v => Object.entries(MODES).map(([k, l]) => `<option value="${k}" ${k === v ? "selected" : ""}>${l}</option>`).join("");
+  $("trajRows").innerHTML = trajRows.length ? trajRows.map((t, i) => `
+    <div class="card" style="padding:12px;margin:10px 0;position:relative">
+      <button class="x" data-trdel="${i}" style="position:absolute;right:6px;top:4px">✕</button>
+      <div class="row2" style="gap:8px;margin-right:26px"><select data-tr="${i}" data-k="mode">${opts(t.mode || "train")}</select>
+        <input data-tr="${i}" data-k="km" type="number" step="0.1" inputmode="decimal" placeholder="km" value="${num(t.km) || ""}"></div>
+      <div class="row2" style="gap:8px;margin-top:8px"><input data-tr="${i}" data-k="depart" placeholder="Départ" value="${esc(t.depart || "")}"><input data-tr="${i}" data-k="arrivee" placeholder="Arrivée" value="${esc(t.arrivee || "")}"></div>
+      <div class="row2" style="gap:8px;margin-top:8px"><input data-tr="${i}" data-k="heure_depart" type="time" value="${esc(t.heure_depart || "")}"><input data-tr="${i}" data-k="heure_arrivee" type="time" value="${esc(t.heure_arrivee || "")}"></div>
+    </div>`).join("") : `<div class="empty" style="margin-top:10px">Aucun trajet pour ce jour</div>`;
+  $("trajRows").querySelectorAll("[data-tr]").forEach(el => el.oninput = el.onchange = () => { trajRows[+el.dataset.tr][el.dataset.k] = el.value; });
+  $("trajRows").querySelectorAll("[data-trdel]").forEach(b => b.onclick = () => { trajRows.splice(+b.dataset.trdel, 1); renderTraj(); });
+}
+$("btnTraj").onclick = () => openTrajets();
+$("trajDay").onchange = () => openTrajets($("trajDay").value);
+$("trajAdd").onclick = () => { const last = trajRows[trajRows.length - 1]; trajRows.push({ mode: "marche", km: "", depart: last ? last.arrivee : "", arrivee: "", heure_depart: "", heure_arrivee: "" }); renderTraj(); };
+async function addMapsPoints(e, day, tr) {
+  const at = hm => { if (!/^\d{1,2}:\d{2}$/.test(hm || "")) return null; const d = new Date(day + "T" + hm.padStart(5, "0")); return isNaN(d) ? null : d.getTime(); };
+  e.track = e.track || [];
+  for (const t of tr) for (const [name, hm] of [[t.depart, t.heure_depart], [t.arrivee, t.heure_arrivee]]) {
+    if (!name) continue;
+    try {
+      const g = await geocodePlace(name); if (!g) continue;
+      const ts = at(hm) || new Date(day + "T12:00").getTime();
+      if (!e.track.some(p => Math.abs(p.t - ts) < 60000 && km(p, g) < 0.3))
+        e.track.push({ lat: g.lat, lng: g.lng, t: ts, c: 1, place: name, src: "maps", mode: t.mode === "marche" ? "pied" : "transport" });
+      await new Promise(r => setTimeout(r, 1100));   // 1 requête/seconde maximum vers le service de recherche
+    } catch (er) {}
   }
-  const tr = (capData.trajets || []).map((t, i) => ({ ...t,
-    mode: document.querySelector(`[data-cap="${i}"][data-k="mode"]`).value,
-    km: parseFloat(String(document.querySelector(`[data-cap="${i}"][data-k="km"]`).value).replace(",", ".")) || 0 }));
-  e.maps = e.maps || {}; e.maps[day] = tr;
-  const addPts = $("capPts") && $("capPts").checked;
-  const btn = $("capSave"); btn.disabled = true; btn.textContent = "Enregistrement…";
-  if (addPts) {
-    const at = hm => { if (!/^\d{1,2}:\d{2}$/.test(hm || "")) return null; const d = new Date(day + "T" + hm.padStart(5, "0")); return isNaN(d) ? null : d.getTime(); };
-    e.track = e.track || [];
-    for (const t of tr) for (const [name, hm] of [[t.depart, t.heure_depart], [t.arrivee, t.heure_arrivee]]) {
-      if (!name) continue;
-      try {
-        const g = await geocodePlace(name); if (!g) continue;
-        const ts = at(hm) || new Date(day + "T12:00").getTime();
-        if (!e.track.some(p => Math.abs(p.t - ts) < 60000 && km(p, g) < 0.3))
-          e.track.push({ lat: g.lat, lng: g.lng, t: ts, c: 1, place: name, src: "maps", mode: t.mode === "marche" ? "pied" : "transport" });
-        await new Promise(r => setTimeout(r, 1100));   // politesse envers le service de recherche (1 requête/seconde)
-      } catch (er) {}
-    }
-    e.track.sort((a, b) => a.t - b.t);
-  }
+  e.track.sort((a, b) => a.t - b.t);
+}
+$("trajSave").onclick = async () => {
+  const e = active(); if (!e) return;
+  const day = $("trajDay").value || dayKey(Date.now());
+  const tr = trajRows.map(t => ({ ...t, km: num(t.km) })).filter(t => t.km > 0 || t.depart || t.arrivee);
+  e.maps = e.maps || {};
+  if (tr.length) e.maps[day] = tr; else delete e.maps[day];
+  const btn = $("trajSave"); btn.disabled = true; btn.textContent = "Enregistrement…";
+  if (tr.length && $("trajPts").checked) await addMapsPoints(e, day, tr);
   btn.disabled = false; btn.textContent = "Enregistrer";
-  save(); closeSheet("sheetCap"); renderAll(true); toast("🗺️ Trajets du " + dayLabel(day) + " enregistrés ✓");
+  save(); closeSheet("sheetTraj"); renderAll(true); setTimeout(routeWalks, 1500);
+  toast(tr.length ? "🗺️ Trajets du " + dayLabel(day) + " enregistrés ✓" : "Trajets du jour effacés");
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v36";
+const VERSION = "v37";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
