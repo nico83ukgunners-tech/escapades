@@ -1315,7 +1315,7 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v10";
+const VERSION = "v11";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
@@ -1347,6 +1347,19 @@ window.addEventListener("hashchange", () => runPreset());
 function presetBtn() { $("btnMilanPreset").hidden = !active() || state.depenses.some(d => d.id === "milan-hotel" && d.escId === state.activeId); }
 $("btnMilanPreset").onclick = () => { runPreset("milan-tricount"); presetBtn(); };
 presetBtn();
+// Mise à jour automatique : compare la version en ligne et recharge si besoin
+async function checkUpdate() {
+  try {
+    const r = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" });
+    const m = (await r.text()).match(/const VERSION = "(v\d+)"/);
+    if (m && m[1] !== VERSION) {
+      toast("Mise à jour " + m[1] + "…");
+      setTimeout(() => location.replace(location.pathname + "?v=" + m[1].slice(1)), 800);
+    }
+  } catch (e) {}
+}
+checkUpdate();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(); });
 const _renderAll = renderAll;
 renderAll = function (fit) { _renderAll(fit); presetBtn(); };
 </script>
