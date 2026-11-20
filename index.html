@@ -235,6 +235,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .hearts button{background:none;border:0;font-size:28px;padding:2px;filter:grayscale(1);opacity:.35}
 .hearts button.on{filter:none;opacity:1}
 .ai-hint{font-family:var(--mono);font-size:11px;color:#6b4bd8;margin-top:6px;min-height:14px}
+.pola .pl{font-family:var(--mono);font-size:10px;color:var(--navy);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pola .who{font-family:var(--mono);font-size:10px;color:var(--muted)}
 .viewer-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .viewer-tags span{background:var(--paper);border-radius:999px;padding:5px 10px;font-size:13px}
@@ -449,6 +450,11 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
       <button class="ai-mini" id="momAi" data-ai-only hidden aria-label="Titre et thèmes par l'IA">✨</button>
     </div>
     <div class="ai-hint" id="momAiHint"></div>
+    <label class="f">Lieu</label>
+    <div class="title-row">
+      <input id="momPlace" placeholder="Bar Mario, Ventimiglia">
+      <button class="ai-mini" id="momPlaceBtn" style="background:var(--navy)" aria-label="Lieu depuis le GPS">📍</button>
+    </div>
     <label class="f">Thèmes</label>
     <div class="tagchips" id="momTags"></div>
     <label class="f">Coup de cœur</label>
@@ -854,6 +860,26 @@ function resizePhoto(file) {
     img.src = URL.createObjectURL(file);
   });
 }
+// Lieu depuis le GPS (OpenStreetMap Nominatim, gratuit, sans clé)
+async function reverseGeocode(lat, lng) {
+  const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=fr`);
+  if (!r.ok) throw new Error("Lieu introuvable");
+  const d = await r.json(), a = d.address || {};
+  const city = a.city || a.town || a.village || a.municipality || "";
+  const name = d.name && d.name !== city ? d.name : "";
+  const parts = [name, name ? "" : (a.road || ""), a.suburb && a.suburb !== city ? a.suburb : "", city].filter(Boolean);
+  return [...new Set(parts)].slice(0, 3).join(", ");
+}
+async function fillPlace(force) {
+  if (!pick) { if (force) locate(() => fillPlace(true)); return; }
+  if (!force && $("momPlace").value.trim()) return;
+  $("momPlace").placeholder = "Recherche du lieu…";
+  try { const p = await reverseGeocode(pick.lat, pick.lng); if (p && (force || !$("momPlace").value.trim())) $("momPlace").value = p; }
+  catch (e) { if (force) toast("Lieu introuvable, écris-le à la main"); }
+  $("momPlace").placeholder = "Bar Mario, Ventimiglia";
+}
+$("momPlaceBtn").onclick = () => fillPlace(true);
+
 function renderMomTags() {
   $("momTags").innerHTML = Object.entries(TAGS).map(([k, [ic, l]]) => `<button class="chip ${momTags.has(k) ? "on" : ""}" data-tag="${k}">${ic} ${l}</button>`).join("");
   $("momTags").querySelectorAll("[data-tag]").forEach(b => b.onclick = () => {
@@ -876,6 +902,7 @@ function openMomentSheet(editId) {
   editMomentId = m ? m.id : null;
   pendingPhoto = m ? safeImg(m.photo) : null;
   momTags = new Set(m ? tagsOf(m) : []); momRating = m ? (m.rating || 0) : 0; momWho = m ? (m.par ?? "both") : "both";
+  $("momPlace").value = m ? (m.place || "") : "";
   $("momLieu").value = m ? (m.lieu || "") : ""; $("momNote").value = m ? (m.note || "") : ""; $("momPhoto").value = "";
   $("momAiHint").textContent = "";
   setPhotoPreview(pendingPhoto);
@@ -885,8 +912,8 @@ function openMomentSheet(editId) {
   aiUI();
   openSheet("sheetMoment");
   if (m) return;
-  if (pick) setPos(pickMarker ? "📌 Point choisi sur la carte" : "📍 Position GPS");
-  else locate(null, true);
+  if (pick) { setPos(pickMarker ? "📌 Point choisi sur la carte" : "📍 Position GPS"); fillPlace(); }
+  else locate(() => fillPlace(), true);
 }
 $("fab").onclick = () => currentTab === "depenses" ? openDepSheet() : openMomentSheet();
 $("momAi").onclick = () => aiTitle(false);
@@ -906,6 +933,7 @@ async function aiTitle(quiet) {
     const e = active();
     const content = [{ type: "text", text:
       `Moment de voyage en couple (escapade : ${e ? names(e).join(" → ") : "?"}${me ? `, position ${me.lat.toFixed(3)}, ${me.lng.toFixed(3)}` : ""}).
+Lieu : "${$("momPlace").value.trim() || "inconnu"}"
 Note écrite : "${note || "(aucune)"}"
 Propose un titre court et vivant en français, 2 à 5 mots, façon légende de carnet de voyage (pas de guillemets, pas d'emoji), et choisis 1 à 3 thèmes parmi : ${Object.entries(TAGS).map(([k, v]) => `${k} (${v[1]})`).join(", ")}.
 Réponds en JSON : {"titre": "", "themes": ["cle"]}` }];
@@ -926,7 +954,7 @@ $("momSave").onclick = async () => {
   const btn = $("momSave");
   if (!lieu && hasAi()) { btn.disabled = true; btn.textContent = "L'IA trouve un titre…"; await aiTitle(true); lieu = $("momLieu").value.trim(); btn.disabled = false; }
   const tags = [...momTags];
-  const data = { lieu, note, photo: pendingPhoto, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: momRating, par: momWho };
+  const data = { lieu, place: $("momPlace").value.trim(), note, photo: pendingPhoto, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: momRating, par: momWho };
   if (editMomentId) Object.assign(state.moments.find(x => x.id === editMomentId), data);
   else state.moments.push({ id: uid(), escId: e.id, ...data, lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, date: today(), ts: Date.now() });
   if (!editMomentId) { pick = null; if (pickMarker) { map.removeLayer(pickMarker); pickMarker = null; } }
@@ -959,6 +987,7 @@ function renderCarnet() {
       <div class="tags">${tagsOf(m).slice(0, 3).map(k => TAGS[k] ? `<span>${TAGS[k][0]}</span>` : "").join("")}</div>
       <div class="ph">${img ? `<img src="${img}" alt="">` : "📍"}</div>
       <div class="cap">${esc(m.lieu || m.note || "Moment")}</div>
+      ${m.place ? `<div class="pl">📍 ${esc(m.place)}</div>` : ""}
       <div class="dt">${fmt(m.date, {day:"numeric", month:"short"})} · ${new Date(m.ts).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})}${m.rating ? " · " + "❤️".repeat(m.rating) : ""}</div>
       ${m.par !== undefined && m.par !== "both" ? `<div class="who">par ${P(m.par)}</div>` : ""}
     </button>`; }).join("")}</div>`;
@@ -970,6 +999,7 @@ function openViewer(id) {
   $("viewBody").innerHTML = `<div class="grab"></div>
     <div class="sub">${esc(fmt(m.date).toUpperCase())} · ${new Date(m.ts).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})}${m.rating ? " · " + "❤️".repeat(m.rating) : ""}</div>
     <h3>${esc(m.lieu || "Moment")}</h3>
+    ${m.place ? `<div class="pos-status" style="text-align:left;margin-top:4px">📍 ${esc(m.place)}</div>` : ""}
     ${tagsOf(m).length ? `<div class="viewer-tags">${tagsOf(m).map(k => TAGS[k] ? `<span>${TAGS[k][0]} ${TAGS[k][1]}</span>` : "").join("")}</div>` : ""}
     ${img ? `<img class="viewer-img" src="${img}" alt="">` : ""}
     ${m.note ? `<div class="viewer-note">${esc(m.note)}</div>` : ""}
@@ -1309,7 +1339,7 @@ function recapText() {
   const e = active();
   if (!e) return "Aucune escapade sélectionnée.";
   const ms = state.moments.filter(m => m.escId === e.id);
-  const lieux = [...new Set(ms.map(m => m.lieu).filter(Boolean))];
+  const lieux = [...new Set(ms.map(m => m.place || m.lieu).filter(Boolean))];
   const sympas = [...new Set(ms.filter(m => tagsOf(m).includes("sympa") || m.rating >= 4).map(m => m.lieu || "sans nom"))];
   const reels = [...new Set(ms.filter(m => tagsOf(m).includes("reel")).map(m => m.lieu || "sans nom"))];
   const bal = balance(e.id);
@@ -1388,7 +1418,7 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v13";
+const VERSION = "v14";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
