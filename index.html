@@ -240,6 +240,16 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .viewer-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .viewer-tags span{background:var(--paper);border-radius:999px;padding:5px 10px;font-size:13px}
 
+.swipe{position:relative;overflow:hidden;border-bottom:1px dashed var(--line)}
+.swipe .exp{border-bottom:0;position:relative;z-index:1;background:#fff;transition:transform .2s ease}
+.swipe.open .exp{transform:translateX(-128px)}
+.swipe .act{position:absolute;right:0;top:0;bottom:0;width:128px;border:0;background:var(--green);color:#fff;font:700 13px var(--sans);line-height:1.2;padding:0 10px}
+.swipe .act.done{background:var(--muted)}
+.paid-badge{color:var(--green);font-weight:700}
+.settle-box{background:#eef7f0;border-radius:14px;padding:12px 14px;margin-top:12px}
+.settle-box b{font-family:var(--display);font-size:17px}
+.settle-box .btn{background:var(--green);margin-top:8px}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -1104,14 +1114,19 @@ function renderDepenses() {
   const list = all.filter(d => d.cat !== "remboursement");
   const rembs = all.filter(d => d.cat === "remboursement");
   const linked = id => rembs.filter(r => r.lien === id).reduce((s, r) => s + toEur(r), 0);
-  $("expList").innerHTML = list.length ? `<div class="explist">${list.map(d => {
+  $("expList").innerHTML = list.length ? `<div class="explist" style="padding:0 12px">${list.map(d => {
     const settle = d.cat === "remboursement", c = CATS[d.cat] || ["💸", "Remboursement"];
     const pour = d.pour === "both" ? "pour les deux" : "pour " + P(d.pour);
-    return `<button class="exp ${settle ? "settle" : ""}" data-dep="${d.id}">
-      <span class="ic">${settle ? "💸" : c[0]}</span>
-      <div><b>${esc(d.desc || c[1])}</b><div class="meta">${P(d.payePar)} a payé · ${settle ? "à " + P(d.pour) : pour} · ${fmt(d.date, {day:"numeric", month:"short"})}${safeImg(d.photo) ? " · 🧾" : ""}${linked(d.id) ? ` · <span style="color:var(--green)">💸 ${euro(linked(d.id))} remboursé</span>` : ""}</div></div>
+    const info = shareInfo(d);
+    const status = !info ? "" : info.left <= 0 ? ` · <span class="paid-badge">✓ remboursé</span>` : info.paid > 0 ? ` · <span class="paid-badge">💸 ${euro(info.paid)} / ${euro(info.due)}</span>` : "";
+    return `<div class="swipe">
+      ${info ? `<button class="act ${info.left <= 0 ? "done" : ""}" data-settle="${d.id}">${info.left <= 0 ? "✓ Déjà<br>remboursé" : `💸 ${esc(state.people[info.debtor])}<br>rembourse<br>${euro(info.left)}`}</button>` : ""}
+      <button class="exp" data-dep="${d.id}">
+      <span class="ic">${c[0]}</span>
+      <div><b>${esc(d.desc || c[1])}</b><div class="meta">${P(d.payePar)} a payé · ${pour} · ${fmt(d.date, {day:"numeric", month:"short"})}${safeImg(d.photo) ? " · 🧾" : ""}${status}</div></div>
       <span class="amt">${d.devise === "GBP" ? "£" + Number(d.montant).toFixed(2) : euro(d.montant)}</span>
-    </button>`; }).join("")}</div>`
+    </button></div>`; }).join("")}</div>
+    <div class="pos-status" style="text-align:left">Astuce : glisse une dépense vers la gauche, ou touche-la, pour noter le remboursement.</div>`
     : `<div class="empty"><b>Aucune dépense</b>Ajoute un resto, un billet ou un verre : le calcul se fait tout seul.</div>`;
 
   // Remboursements : résumé par sens + liste détaillée
@@ -1132,6 +1147,41 @@ function renderDepenses() {
       <span class="amt">${euro(toEur(r))}</span>
     </button>`; }).join("")}</div>` : `<div class="empty"><b>Aucun remboursement</b>Quand l'un rembourse l'autre (virement, espèces…), note-le ici : l'équilibre se met à jour.</div>`;
 }
+
+// ---- Remboursement rapide d'une dépense (sa part, en un geste) ----
+function shareInfo(d) {
+  // Qui doit quoi sur CETTE dépense, et combien a déjà été remboursé
+  const debtor = d.pour === "both" ? 1 - d.payePar : (d.pour !== d.payePar ? d.pour : null);
+  if (debtor === null) return null;
+  const due = d.pour === "both" ? toEur(d) / 2 : toEur(d);
+  const paid = state.depenses.filter(r => r.cat === "remboursement" && r.lien === d.id && r.payePar === debtor).reduce((s, r) => s + toEur(r), 0);
+  return { debtor, creditor: d.payePar, due, paid, left: Math.max(0, Math.round((due - paid) * 100) / 100) };
+}
+function settleExpense(id) {
+  const d = state.depenses.find(x => x.id === id), info = d && shareInfo(d);
+  if (!info || info.left <= 0) return toast("Déjà remboursé ✓");
+  state.depenses.push({ id: uid(), escId: d.escId, montant: info.left, devise: "EUR", taux: 1, payePar: info.debtor, pour: info.creditor,
+    cat: "remboursement", moyen: "virement", lien: d.id, desc: "Part de « " + (d.desc || "dépense") + " »", date: today(), ts: Date.now() });
+  save(); renderAll(); toast(`💸 ${state.people[info.debtor]} a remboursé ${euro(info.left)} ✓`);
+}
+function unsettleExpense(id) {
+  state.depenses = state.depenses.filter(r => !(r.cat === "remboursement" && r.lien === id));
+  save(); renderAll(); toast("Remboursement annulé");
+}
+// Glisser vers la gauche sur une dépense
+let swX = null, swRow = null;
+document.addEventListener("touchstart", ev => {
+  const row = ev.target.closest(".swipe");
+  document.querySelectorAll(".swipe.open").forEach(r => { if (r !== row) r.classList.remove("open"); });
+  swRow = row; swX = row ? ev.touches[0].clientX : null;
+}, { passive: true });
+document.addEventListener("touchend", ev => {
+  if (!swRow || swX === null) return;
+  const dx = ev.changedTouches[0].clientX - swX;
+  if (dx < -50) { swRow.classList.add("open"); swRow.dataset.justSwiped = "1"; setTimeout(() => { if (swRow) delete swRow.dataset.justSwiped; }, 350); }
+  else if (dx > 40) swRow.classList.remove("open");
+  swX = null;
+}, { passive: true });
 
 // ---- Feuille remboursement ----
 let remb = null;
@@ -1239,11 +1289,24 @@ function openDepViewer(id) {
     <div class="receipt" style="margin-top:10px">${d.devise === "GBP" ? `£${Number(d.montant).toFixed(2)} (≈ ${euro(toEur(d))})` : euro(d.montant)}
 Payé par ${P(d.payePar)}
 ${d.cat === "remboursement" ? "Remboursé à " + P(d.pour) : d.pour === "both" ? "Partagé 50/50" : "Pour " + P(d.pour) + " uniquement"}</div>
+    ${(() => { const i = d.cat !== "remboursement" && shareInfo(d); if (!i) return "";
+      return `<div class="settle-box"><b>Part de ${P(i.debtor)} : ${euro(i.due)}</b>
+        <div class="pos-status" style="text-align:left;margin-top:4px">${i.left <= 0 ? "✓ Entièrement remboursée à " + P(i.creditor) : i.paid > 0 ? `Déjà remboursé ${euro(i.paid)} · reste ${euro(i.left)}` : "Pas encore remboursée"}</div>
+        ${i.left > 0 ? `<button class="btn" id="vSettle">💸 ${P(i.debtor)} a remboursé ${euro(i.left)}</button>
+        <button class="link" id="vOther">Autre montant / autre moyen…</button>` : `<button class="link danger" id="vUnsettle">Annuler le remboursement</button>`}</div>`; })()}
     ${img ? `<img class="viewer-img" src="${img}" alt="">` : ""}
     <button class="link danger" id="vDel">Supprimer cette dépense</button>
     <button class="link" data-close style="float:right">Fermer</button>`;
   openSheet("sheetView");
-  $("vDel").onclick = function () { confirmTap(this, () => { state.depenses = state.depenses.filter(x => x.id !== id); save(); closeSheet("sheetView"); renderAll(); }); };
+  $("vDel").onclick = function () { confirmTap(this, () => { state.depenses = state.depenses.filter(x => x.id !== id && x.lien !== id); save(); closeSheet("sheetView"); renderAll(); }); };
+  if ($("vSettle")) $("vSettle").onclick = () => { settleExpense(id); openDepViewer(id); };
+  if ($("vUnsettle")) $("vUnsettle").onclick = function () { confirmTap(this, () => { unsettleExpense(id); openDepViewer(id); }); };
+  if ($("vOther")) $("vOther").onclick = () => {
+    closeSheet("sheetView"); openRembSheet();
+    const i = shareInfo(d); $("rembFor").value = id;
+    document.querySelectorAll("#rembFrom button").forEach(b => b.classList.toggle("on", +b.dataset.v === i.debtor));
+    remb.from = i.debtor; $("rembMontant").value = i.left.toFixed(2);
+  };
 }
 
 // ================= Assistant IA (clé stockée seulement sur ce téléphone) =================
@@ -1481,6 +1544,10 @@ $("btnImport").onclick = () => {
 // ================= Clics délégués =================
 document.addEventListener("click", ev => {
   if (ev.target.closest("[data-new-dep]")) return openDepSheet();
+  const st = ev.target.closest("[data-settle]");
+  if (st) { st.closest(".swipe").classList.remove("open"); return settleExpense(st.dataset.settle); }
+  const sw = ev.target.closest(".swipe");
+  if (sw && (sw.classList.contains("open") || sw.dataset.justSwiped)) { if (!sw.dataset.justSwiped) sw.classList.remove("open"); return; }
   const t = ev.target.closest("[data-dep],[data-new-esc],[data-edit-esc],[data-pick-esc],[data-moment],[data-done],[data-del-spot]");
   if (!t) return;
   if (t.hasAttribute("data-new-esc")) return openEscSheet();
@@ -1504,7 +1571,7 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v15";
+const VERSION = "v16";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
