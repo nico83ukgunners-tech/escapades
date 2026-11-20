@@ -218,6 +218,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .ia-ov .bar i{position:absolute;left:0;top:0;bottom:0;background:#fff;border-radius:6px;transition:width 1s linear}
 .ia-done{animation:iaPop .6s ease}
 @keyframes iaPop{0%{transform:scale(.94);filter:brightness(1.6)}100%{transform:scale(1);filter:none}}
+.ia-err{background:#fde8e8;border:1px solid #e9a3a3;color:#7a1f1f;border-radius:14px;padding:12px 14px;margin:10px 0;font-size:14px;line-height:1.4;text-align:left}
+.ia-err b{display:block;margin-bottom:4px}
+.ia-err code{font-size:12px;opacity:.75;word-break:break-word;display:block;margin-top:6px}
 .ai-btn{background:linear-gradient(135deg,#6b4bd8,#c2185b)!important;color:#fff!important;border:0!important}
 .idea{background:#fff;border-radius:14px;padding:12px 14px;margin:10px 0;border-left:5px solid #6b4bd8}
 .idea b{font-family:var(--display);font-size:17px}
@@ -1836,7 +1839,17 @@ function renderCarnet() {
 }
 
 let viewerId = null, iaJustDone = null;
-const iaBusy = {};
+const iaBusy = {}, iaErr = {};
+function iaExplain(raw) {
+  const t = String(raw || "");
+  if (/verif/i.test(t)) return "OpenAI demande de vérifier ton organisation pour créer des images. Sur platform.openai.com → Settings → Organization → General → « Verify Organization » (pièce d'identité, 10-15 min, gratuit). Ensuite relance.";
+  if (/permission|scope|insufficient|restricted/i.test(t)) return "Ta clé restreinte n'a pas le droit de créer des images. Sur platform.openai.com → API keys → modifie ta clé → autorise « Images » (ou Write sur Model capabilities). Ensuite relance.";
+  if (/Clé refusée|401|invalid.*key|Incorrect API key/i.test(t)) return "OpenAI refuse la clé (expirée ou mal copiée). Vérifie-la dans Passeport → clé IA.";
+  if (/crédit|quota|billing|429/i.test(t)) return "Plus de crédit sur le compte OpenAI ou trop de demandes d'un coup. Vérifie Billing sur platform.openai.com.";
+  if (/trop de temps|Abort/i.test(t)) return "Pas de réponse au bout de 3 minutes (réseau faible ?). Réessaie avec une meilleure connexion.";
+  if (/Failed to fetch|Load failed|NetworkError/i.test(t)) return "Connexion coupée pendant l'envoi. Réessaie avec du réseau.";
+  return "L'IA n'a pas pu créer l'image.";
+}
 let iaTick = null;
 const IA_STEPS = ["Envoi de la photo à l'IA…", "L'IA analyse la scène…", "Elle dessine le bandeau et les stickers…", "Ajout des annotations…", "Dernières retouches…", "Encore un peu de patience…"];
 function iaOverlay(id) {
@@ -1869,6 +1882,7 @@ function openViewer(id) {
     ${tagsOf(m).length ? `<div class="viewer-tags">${tagsOf(m).map(k => TAGS[k] ? `<span>${TAGS[k][0]} ${TAGS[k][1]}</span>` : "").join("")}</div>` : ""}
     ${m.video ? `<video class="viewer-video" id="vVideo" controls playsinline ${img ? `poster="${img}"` : ""}></video>` : (img ? `<div class="ia-wrap" id="vImgWrap"><img class="viewer-img${iaJustDone === id ? " ia-done" : ""}" src="${img}" alt=""></div>` : "")}
     ${(m.extra || []).length ? `<div class="gallery">${m.extra.map(u => safeImg(u) ? `<img src="${u}" alt="">` : "").join("")}</div><div class="pos-status" style="text-align:left">${m.extra.length + 1} photos · glisse pour voir</div>` : ""}
+    ${iaErr[id] ? `<div class="ia-err"><b>⚠️ La version IA n'a pas marché</b>${esc(iaExplain(iaErr[id]))}<code>${esc(iaErr[id])}</code></div>` : ""}
     ${m.note ? `<div class="viewer-note">${esc(m.note)}</div>` : ""}
     <button class="btn" id="vEdit">✏️ Modifier (titre, thèmes…)</button>
     ${safeImg(m.photo) && !m.video ? `<div class="row2"><button class="btn light" id="vStyle">🎨 Mise en page carnet</button>${hasAi() ? `<button class="btn ai-btn" id="vStyleAi">✨ Version illustrée IA</button>` : ""}</div>` : ""}
@@ -1880,7 +1894,7 @@ function openViewer(id) {
   $("vEdit").onclick = () => { closeSheet("sheetView"); openMomentSheet(id); };
   if ($("vStyle")) $("vStyle").onclick = async () => { const b = $("vStyle"); b.disabled = true; b.textContent = "Mise en page…"; try { await styleCarnet(m); openViewer(id); toast("Page de carnet créée ✓"); } catch (er) { toast("Mise en page impossible"); b.disabled = false; } };
   if ($("vStyleAi")) $("vStyleAi").onclick = function () { if (iaBusy[id]) return; confirmTap(this, async () => {
-    iaBusy[id] = Date.now(); iaOverlay(id);
+    iaBusy[id] = Date.now(); delete iaErr[id]; iaOverlay(id);
     const open = () => viewerId === id && $("sheetView").classList.contains("open");
     try {
       await styleIa(m); delete iaBusy[id];
@@ -1889,6 +1903,7 @@ function openViewer(id) {
       if (navigator.vibrate) navigator.vibrate(80);
     } catch (er) {
       delete iaBusy[id];
+      iaErr[id] = er.name === "AbortError" ? "L'IA a mis trop de temps" : (er.message || "Illustration impossible");
       if (open()) openViewer(id);
       toast("⚠️ " + (er.name === "AbortError" ? "L'IA a mis trop de temps, réessaie" : (er.message || "Illustration impossible")));
     }
@@ -3227,7 +3242,7 @@ des petits stickers dessinés à la main liés au lieu (${m.place || names(e)[1]
 du scotch washi, une étiquette « ${names(e)[1]} » et la date ${new Date(m.ts).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}.
 Style propre, coloré, lisible, format portrait. N'invente pas de noms de personnes.`;
   let lastErr = null;
-  for (const model of ["gpt-image-1-mini", "gpt-image-1.5", "gpt-image-1"]) {
+  for (const model of ["gpt-image-1-mini", "gpt-image-2", "gpt-image-1.5", "gpt-image-1"]) {
     try {
       const fd = new FormData();
       fd.append("model", model); fd.append("prompt", prompt); fd.append("size", "1024x1536"); fd.append("quality", "medium");
@@ -3252,7 +3267,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v46";
+const VERSION = "v47";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
