@@ -347,6 +347,14 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .recap-out{background:#fff;border-radius:14px;padding:14px;margin-top:12px;white-space:pre-wrap;font-size:15px;line-height:1.45}
 .recap-out h4{margin:12px 0 4px;font:700 10px var(--mono);letter-spacing:.15em;color:#6b4bd8}
 .recap-out h4:first-child{margin-top:0}
+.rc-strip{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;white-space:normal;-webkit-overflow-scrolling:touch}
+.rc-strip img{width:64px;height:64px;object-fit:cover;border-radius:8px;flex:0 0 auto;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.rc-list{white-space:normal}
+.rc-row{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #e6dccb}
+.rc-row:last-child{border-bottom:0}
+.rc-row img,.rc-row .rc-ph{width:58px;height:58px;object-fit:cover;border-radius:8px;flex:0 0 auto;background:#f1eadc;display:flex;align-items:center;justify-content:center;font-size:22px}
+.rc-row .rc-t{flex:1;min-width:0;font-size:14.5px;line-height:1.35}
+.rc-row .rc-n{font:700 11px var(--mono);color:#6b4bd8;display:block;margin-bottom:2px}
 .backup-warn{background:#fff3e0;border-radius:12px;padding:10px 12px;font-size:14px;margin-top:10px}
 
 details.fold{background:var(--paper2);border-radius:16px;margin-top:12px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
@@ -2703,13 +2711,46 @@ function showSavedRecap() {
   $("recapOut").innerHTML = r ? recapHtml(r) : `<p class="pos-status" style="text-align:left">${hasAi() ? "Appuie sur ✨ pour écrire le récap de cette période." : "La carte postale marche sans IA. Pour les textes, ajoute ta clé dans Passeport."}</p>`;
   bindRecapCopy(r);
 }
+// Textes du récap : accepte l'ancien format (texte) et le nouveau ({m, d, t})
+const rcText = x => typeof x === "string" ? x : [x.d, x.t].filter(Boolean).join(" — ");
+function rcMoment(x, i, ms, kind) {
+  if (x && typeof x === "object" && x.m) return ms[x.m - 1] || null;
+  const str = String(x || ""), hm = str.match(/\b(\d{1,2})[:h](\d{2})\b/);
+  if (hm) {
+    const mins = +hm[1] * 60 + +hm[2];
+    let best = null, bd = 25;
+    ms.forEach(m => { const d = new Date(m.ts), dd = Math.abs(d.getHours() * 60 + d.getMinutes() - mins); if (dd < bd) { bd = dd; best = m; } });
+    if (best) return best;
+  }
+  if (kind === "plans") { const n = str.match(/^\s*(\d+)\s*[—\-.)]/); if (n && ms[+n[1] - 1]) return ms[+n[1] - 1]; }
+  return kind === "story" && ms.length ? ms[Math.min(ms.length - 1, Math.round(i * (ms.length - 1) / Math.max(1, rcCount - 1)))] : null;
+}
+let rcCount = 1;
+function rcList(arr, kind, ms) {
+  rcCount = arr.length;
+  return `<div class="rc-list">${arr.map((x, i) => {
+    const m = rcMoment(x, i, ms, kind), img = m && safeImg(m.photo);
+    return `<div class="rc-row">${img ? `<img src="${img}" alt="" data-rcm="${m.id}">` : `<span class="rc-ph">${m && m.video ? "🎬" : "📷"}</span>`}<div class="rc-t">${kind === "plans" ? `<span class="rc-n">PLAN ${i + 1}${m ? " · " + esc(m.lieu || "") : ""}</span>` : ""}${esc(rcText(x).replace(/^\s*\d+\s*[—\-]\s*/, kind === "plans" ? "" : "$&"))}</div></div>`;
+  }).join("")}</div>`;
+}
 function recapHtml(r) {
+  const e = active(), ms = e ? recapMoments(e) : [];
   const block = (t, v, k) => v ? `<h4>${t}</h4><div>${esc(v)}</div><button class="link" data-copy="${k}">Copier</button>` : "";
-  return `<div class="recap-out">${block("JOURNAL", r.journal, "journal")}${block("STORY · TEXTES À L'ÉCRAN", (r.story || []).join("\n"), "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${block("REEL · PLANS CONSEILLÉS", (r.plans || []).join("\n"), "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
+  const strip = ms.filter(m => safeImg(m.photo));
+  const lst = (t, arr, k) => arr && arr.length ? `<h4>${t}</h4>${rcList(arr, k, ms)}<button class="link" data-copy="${k}">Copier les textes</button>${k === "plans" && strip.length ? ` · <button class="link" id="rcShare">📤 Envoyer les photos dans l'ordre</button>` : ""}` : "";
+  return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
 }
 function bindRecapCopy(r) {
+  $("recapOut").querySelectorAll("[data-rcm]").forEach(im => im.onclick = () => { closeSheet("sheetRecap"); openViewer(im.dataset.rcm); });
+  const sh = $("rcShare");
+  if (sh) sh.onclick = async () => {
+    const e = active(), ms = recapMoments(e), seen = new Set(), files = [];
+    (r.plans || []).forEach((x, i) => { const m = rcMoment(x, i, ms, "plans"); if (m && safeImg(m.photo) && !seen.has(m.id)) { seen.add(m.id); files.push(dataUrlToFile(m.photo, String(files.length + 1).padStart(2, "0") + "-" + (m.lieu || "photo").replace(/[^\w\u00C0-\u017F-]+/g, "_").slice(0, 30) + ".jpg")); } });
+    if (!files.length) return toast("Pas de photos à envoyer");
+    try { if (navigator.canShare && navigator.canShare({ files })) await navigator.share({ files }); else toast("Partage de photos non disponible ici"); } catch (er) { if (er.name !== "AbortError") toast("Partage impossible"); }
+  };
   $("recapOut").querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
-    const k = b.dataset.copy, v = Array.isArray(r[k]) ? r[k].join(k === "hashtags" ? " " : "\n") : r[k];
+    const k = b.dataset.copy, v = Array.isArray(r[k]) ? r[k].map(rcText).join(k === "hashtags" ? " " : "\n") : r[k];
     try { await navigator.clipboard.writeText(k === "legende" && r.hashtags ? v + "\n\n" + r.hashtags.join(" ") : v); toast("Copié ✓"); } catch (er) { toast("Copie impossible"); }
   });
 }
@@ -2727,7 +2768,7 @@ Chiffres : ${ms.length} moments, ${f1(k.pied)} km à pied, ${f1(k.transport)} km
 Moments dans l'ordre :
 ${lines}
 Ton : complice, drôle, naturel, en français, pas cliché, en reprenant l'esprit de nos notes.
-JSON : {"journal":"5 à 7 phrases façon carnet intime","story":["4 à 6 textes très courts à poser sur les photos de la story, dans l'ordre"],"legende":"légende de Reel, 2 à 4 lignes avec quelques emojis","hashtags":["8 hashtags pertinents"],"plans":["plans du Reel dans l'ordre : numéro du moment + durée + idée de cadrage/texte"],"musique":"ambiance musicale conseillée"}` }], true);
+JSON : {"journal":"5 à 7 phrases façon carnet intime","story":[{"m":numéro du moment dont la photo sert de fond,"t":"texte très court à poser dessus"}] (4 à 6, dans l'ordre),"legende":"légende de Reel, 2 à 4 lignes avec quelques emojis","hashtags":["8 hashtags pertinents"],"plans":[{"m":numéro du moment à utiliser,"d":"durée ex 3s","t":"idée de cadrage + texte à l'écran"}] (dans l'ordre du Reel),"musique":"ambiance musicale conseillée"}` }], true);
     e.recaps = e.recaps || {}; e.recaps[recapDay] = r; save();
     showSavedRecap();
   } catch (er) { toast(er.message); }
@@ -3275,7 +3316,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v49";
+const VERSION = "v50";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
