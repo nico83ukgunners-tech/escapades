@@ -678,18 +678,62 @@ function names(e) {
 }
 
 // ================= Stockage =================
+// ---- Stockage : IndexedDB (grande capacité, photos comprises) + copie légère dans localStorage ----
+let dbP = null;
+function idb() {
+  if (!dbP) dbP = new Promise((res, rej) => {
+    try { const r = indexedDB.open("escapades", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }
+    catch (e) { rej(e); }
+  });
+  return dbP;
+}
+async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+let idbReady = false;
+function light(st) {
+  // Copie sans photos (secours léger dans localStorage)
+  const strip = o => { const c = { ...o }; delete c.photo; return c; };
+  return { ...st, moments: st.moments.map(strip), depenses: st.depenses.map(strip),
+    escapades: st.escapades.map(e => ({ ...e, track: (e.track || []).map(strip) })) };
+}
+async function loadIdb() {
+  try {
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+    const saved = await idbGet(KEY);
+    if (saved && saved.escapades) { state = { ...state, ...saved }; normalize(); renderAll(true); }
+    else await idbSet(KEY, JSON.parse(JSON.stringify(state)));   // première fois : on copie tout ce qui existe
+    idbReady = true;
+    try { localStorage.setItem(KEY, JSON.stringify(light(state))); } catch (e) {}
+  } catch (e) { idbReady = false; }
+}
+
 function load() {
   try { const raw = localStorage.getItem(KEY); if (raw) state = { ...state, ...JSON.parse(raw) }; } catch (e) {}
+  normalize();
+}
+function normalize() {
   state.depenses = state.depenses || []; state.people = state.people || ["Nico", "Ashleigh"]; state.rateGBP = state.rateGBP || 1.15;
   if (!active() && state.escapades.length) state.activeId = state.escapades[state.escapades.length - 1].id;
   // Répare les dépenses importées sans escapade valide (ex. import fait avec une ancienne version)
   const ids = new Set(state.escapades.map(e => e.id));
   if (state.activeId) state.depenses.forEach(d => { if (!ids.has(d.escId)) d.escId = state.activeId; });
 }
+let saveT = null;
 function save() {
+  if (idbReady) {
+    clearTimeout(saveT);
+    saveT = setTimeout(() => {
+      idbSet(KEY, JSON.parse(JSON.stringify(state)))
+        .then(() => { try { localStorage.setItem(KEY, JSON.stringify(light(state))); } catch (e) {} })
+        .catch(() => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { toast("Enregistrement impossible : mémoire pleine"); } });
+    }, 150);
+    return;
+  }
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
   catch (e) { toast("Mémoire du téléphone pleine : exporte puis supprime de vieilles photos"); }
 }
+// Enregistre immédiatement si l'app passe en arrière-plan
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && saveT) { clearTimeout(saveT); saveT = null; if (idbReady) idbSet(KEY, JSON.parse(JSON.stringify(state))).catch(() => {}); } });
 
 // ================= Interface =================
 let toastT;
@@ -1929,6 +1973,7 @@ load();
 initMap();
 renderAll(true);
 aiUI();
+loadIdb();
 
 // ================= Déplacer une photo du carnet (appui long + glisser) =================
 function clearDrop() { document.querySelectorAll(".drop-before,.drop-after").forEach(x => x.classList.remove("drop-before", "drop-after")); }
@@ -1989,7 +2034,7 @@ document.addEventListener("touchend", () => {
 document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
 
 // ================= Version + imports par lien =================
-const VERSION = "v23";
+const VERSION = "v24";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
