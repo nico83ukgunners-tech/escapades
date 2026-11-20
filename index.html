@@ -571,9 +571,18 @@ function confirmTap(btn, fn) {
 function initMap() {
   map = L.map("map", { zoomControl: false }).setView([43.79, 7.53], 10);
   L.control.zoom({ position: "bottomright" }).addTo(map);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-    attribution: "© OpenStreetMap © CARTO", subdomains: "abcd", maxZoom: 20
+  // Fond OSM France (noms en français, sans clé) ; bascule sur OSM standard si les tuiles ne répondent pas
+  const fr = L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap France", subdomains: "abc", maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin"
   }).addTo(map);
+  let errors = 0, switched = false;
+  fr.on("tileerror", () => {
+    if (switched || ++errors < 4) return;
+    switched = true; map.removeLayer(fr);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap", maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin"
+    }).addTo(map);
+  });
   layer = L.layerGroup().addTo(map);
   map.on("click", e => {
     pick = { lat: e.latlng.lat, lng: e.latlng.lng };
