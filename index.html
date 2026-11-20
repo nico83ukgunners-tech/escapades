@@ -321,6 +321,10 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div class="card cats" id="cats"></div>
     <h2><small>HISTORIQUE</small>Toutes les dépenses</h2>
     <div id="expList"></div>
+    <h2><small>POUR ÉQUILIBRER</small>Remboursements</h2>
+    <div id="rembSummary"></div>
+    <button class="btn" id="btnRemb">💸 Enregistrer un remboursement</button>
+    <div id="rembList" style="margin-top:12px"></div>
     <h2><small>RÉGLAGES</small>Noms et devise</h2>
     <div class="card">
       <div class="row2" style="gap:10px">
@@ -495,6 +499,31 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <label class="f">Date</label>
     <input id="depDate" type="date">
     <button class="btn red" id="depSave">Enregistrer la dépense</button>
+    <button class="link" data-close>Annuler</button>
+  </div>
+</div>
+
+<!-- ============ FEUILLE : REMBOURSEMENT ============ -->
+<div class="sheet" id="sheetRemb">
+  <div class="panel">
+    <div class="grab"></div>
+    <div class="sub">REMBOURSEMENT</div>
+    <h3>Qui rembourse qui ?</h3>
+    <label class="f">De</label>
+    <div class="seg" id="rembFrom"></div>
+    <div class="pos-status" id="rembTo" style="text-align:left"></div>
+    <label class="f">Montant</label>
+    <input id="rembMontant" class="amount-in" type="number" step="0.01" inputmode="decimal" placeholder="0,00">
+    <div class="pos-status" id="rembHint" style="text-align:left"></div>
+    <label class="f">Pour quoi</label>
+    <select id="rembFor"></select>
+    <label class="f">Comment</label>
+    <div class="seg" id="rembHow"></div>
+    <label class="f">Note (facultatif)</label>
+    <input id="rembNote" placeholder="Ex : ma part de l'hôtel">
+    <label class="f">Date</label>
+    <input id="rembDate" type="date">
+    <button class="btn red" id="rembSave">Enregistrer le remboursement</button>
     <button class="link" data-close>Annuler</button>
   </div>
 </div>
@@ -1056,11 +1085,11 @@ function renderDepenses() {
       <div><small>${P(0).toUpperCase()} A PAYÉ</small><b>${euro(b.paid[0])}</b><span class="tot">sa part : ${euro(b.share[0])}</span></div>
       <div><small>${P(1).toUpperCase()} A PAYÉ</small><b>${euro(b.paid[1])}</b><span class="tot">sa part : ${euro(b.share[1])}</span></div>
     </div>
-    ${b.debtor !== null ? `<button class="btn" id="btnSettle">Marquer comme remboursé</button>` : ""}`;
+    ${b.debtor !== null ? `<button class="btn" id="btnSettle">✓ Tout est remboursé</button>` : ""}`;
   if ($("btnSettle")) $("btnSettle").onclick = function () {
     confirmTap(this, () => {
       state.depenses.push({ id: uid(), escId: e.id, montant: Math.round(b.amount * 100) / 100, devise: "EUR", taux: 1,
-        payePar: b.debtor, pour: 1 - b.debtor, cat: "remboursement", desc: "Remboursement", date: today(), ts: Date.now() });
+        payePar: b.debtor, pour: 1 - b.debtor, cat: "remboursement", desc: "Solde complet", lien: null, date: today(), ts: Date.now() });
       save(); renderAll(); toast("Remboursement enregistré ✓");
     });
   };
@@ -1071,17 +1100,74 @@ function renderDepenses() {
       <div>${(CATS[k] || CATS.autre)[1]}<div class="bar"><i style="width:${Math.max(4, v / max * 100)}%"></i></div></div>
       <span class="amt">${euro(v)}</span></div>`).join("")
     : `<div style="color:var(--muted);font-size:14px">Les catégories s'afficheront ici.</div>`;
-  const list = [...b.list].sort((x, y) => (y.date || "").localeCompare(x.date || "") || y.ts - x.ts);
+  const all = [...b.list].sort((x, y) => (y.date || "").localeCompare(x.date || "") || y.ts - x.ts);
+  const list = all.filter(d => d.cat !== "remboursement");
+  const rembs = all.filter(d => d.cat === "remboursement");
+  const linked = id => rembs.filter(r => r.lien === id).reduce((s, r) => s + toEur(r), 0);
   $("expList").innerHTML = list.length ? `<div class="explist">${list.map(d => {
     const settle = d.cat === "remboursement", c = CATS[d.cat] || ["💸", "Remboursement"];
     const pour = d.pour === "both" ? "pour les deux" : "pour " + P(d.pour);
     return `<button class="exp ${settle ? "settle" : ""}" data-dep="${d.id}">
       <span class="ic">${settle ? "💸" : c[0]}</span>
-      <div><b>${esc(d.desc || c[1])}</b><div class="meta">${P(d.payePar)} a payé · ${settle ? "à " + P(d.pour) : pour} · ${fmt(d.date, {day:"numeric", month:"short"})}${safeImg(d.photo) ? " · 🧾" : ""}</div></div>
+      <div><b>${esc(d.desc || c[1])}</b><div class="meta">${P(d.payePar)} a payé · ${settle ? "à " + P(d.pour) : pour} · ${fmt(d.date, {day:"numeric", month:"short"})}${safeImg(d.photo) ? " · 🧾" : ""}${linked(d.id) ? ` · <span style="color:var(--green)">💸 ${euro(linked(d.id))} remboursé</span>` : ""}</div></div>
       <span class="amt">${d.devise === "GBP" ? "£" + Number(d.montant).toFixed(2) : euro(d.montant)}</span>
     </button>`; }).join("")}</div>`
     : `<div class="empty"><b>Aucune dépense</b>Ajoute un resto, un billet ou un verre : le calcul se fait tout seul.</div>`;
+
+  // Remboursements : résumé par sens + liste détaillée
+  const flow = [0, 0]; rembs.forEach(r => flow[r.payePar] += toEur(r));
+  $("rembSummary").innerHTML = `<div class="card" style="margin-top:0">
+    <div class="cats">
+      <div class="c"><span style="font-size:20px">💸</span><div>${P(0)} → ${P(1)}</div><span class="amt">${euro(flow[0])}</span></div>
+      <div class="c"><span style="font-size:20px">💸</span><div>${P(1)} → ${P(0)}</div><span class="amt">${euro(flow[1])}</span></div>
+    </div>
+    <div class="pos-status" style="text-align:left;margin-top:6px">${b.debtor === null ? "✓ Tout est équilibré" : `Reste à rembourser : <b>${P(b.debtor)} → ${P(1 - b.debtor)} ${euro(b.amount)}</b>`}</div>
+  </div>`;
+  const HOW = { virement: "🏦 Virement", especes: "💶 Espèces", lydia: "📱 Lydia / Wero", paypal: "🅿️ PayPal", carte: "💳 Payé pour l'autre" };
+  $("rembList").innerHTML = rembs.length ? `<div class="explist">${rembs.map(r => {
+    const exp = r.lien ? state.depenses.find(x => x.id === r.lien) : null;
+    return `<button class="exp settle" data-dep="${r.id}">
+      <span class="ic">💸</span>
+      <div><b>${P(r.payePar)} → ${P(r.pour)}</b><div class="meta">${exp ? "pour « " + esc(exp.desc || "dépense") + " » · " : (r.desc && r.desc !== "Remboursement" ? esc(r.desc) + " · " : "solde général · ")}${HOW[r.moyen] ? HOW[r.moyen] + " · " : ""}${fmt(r.date, {day:"numeric", month:"short"})}</div></div>
+      <span class="amt">${euro(toEur(r))}</span>
+    </button>`; }).join("")}</div>` : `<div class="empty"><b>Aucun remboursement</b>Quand l'un rembourse l'autre (virement, espèces…), note-le ici : l'équilibre se met à jour.</div>`;
 }
+
+// ---- Feuille remboursement ----
+let remb = null;
+function openRembSheet() {
+  const e = active(); if (!e) return openEscSheet();
+  const b = balance(e.id);
+  remb = { from: b.debtor ?? 0, moyen: "virement" };
+  const refresh = () => {
+    $("rembTo").textContent = `→ à ${state.people[1 - remb.from]}`;
+    const bb = balance(e.id);
+    $("rembHint").textContent = bb.debtor === remb.from ? `Il lui reste ${euro(bb.amount)} à rembourser` : (bb.debtor === null ? "Vous êtes déjà quittes" : `C'est plutôt ${state.people[bb.debtor]} qui doit ${euro(bb.amount)}`);
+    if (bb.debtor === remb.from && !$("rembMontant").value) $("rembMontant").value = bb.amount.toFixed(2);
+  };
+  segButtons("rembFrom", [[0, state.people[0]], [1, state.people[1]]], remb.from, v => { remb.from = v; $("rembMontant").value = ""; refresh(); });
+  segButtons("rembHow", [["virement", "🏦 Virement"], ["especes", "💶 Espèces"], ["lydia", "📱 Lydia / Wero"], ["paypal", "🅿️ PayPal"], ["carte", "💳 Payé pour l'autre"]], remb.moyen, v => remb.moyen = v);
+  const exps = b.list.filter(d => d.cat !== "remboursement").sort((x, y) => (y.date || "").localeCompare(x.date || ""));
+  $("rembFor").innerHTML = `<option value="">Solde général (tout ce qui est dû)</option>` +
+    exps.map(d => `<option value="${d.id}">${esc(d.desc || (CATS[d.cat] || CATS.autre)[1])} · ${euro(toEur(d))}${d.pour === "both" ? " (part : " + euro(toEur(d) / 2) + ")" : ""}</option>`).join("");
+  $("rembFor").onchange = () => {
+    const d = state.depenses.find(x => x.id === $("rembFor").value);
+    if (d) $("rembMontant").value = (d.pour === "both" ? toEur(d) / 2 : toEur(d)).toFixed(2);
+  };
+  $("rembMontant").value = ""; $("rembNote").value = ""; $("rembDate").value = today();
+  refresh();
+  openSheet("sheetRemb");
+}
+$("btnRemb").onclick = openRembSheet;
+$("rembSave").onclick = () => {
+  const e = active(); if (!e) return;
+  const montant = parseFloat(String($("rembMontant").value).replace(",", "."));
+  if (!(montant > 0)) return toast("Indique un montant");
+  state.depenses.push({ id: uid(), escId: e.id, montant: Math.round(montant * 100) / 100, devise: "EUR", taux: 1,
+    payePar: remb.from, pour: 1 - remb.from, cat: "remboursement", moyen: remb.moyen, lien: $("rembFor").value || null,
+    desc: $("rembNote").value.trim() || "Remboursement", date: $("rembDate").value || today(), ts: Date.now() });
+  save(); closeSheet("sheetRemb"); renderAll(); toast("Remboursement enregistré ✓");
+};
 ["p0", "p1"].forEach((id, i) => $(id).onchange = () => { state.people[i] = $(id).value.trim() || state.people[i]; save(); renderAll(); });
 $("rateGBP").onchange = () => { const v = parseFloat($("rateGBP").value); if (v > 0) { state.rateGBP = v; save(); renderAll(); } };
 
@@ -1418,12 +1504,12 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v14";
+const VERSION = "v15";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
     ["train-ar", 134.00, "Train A/R Ventimiglia-Milan", "transport", "2026-10-29", 1, "both"],
-    ["rembt", 172.00, "Remboursement hôtel + train", "remboursement", "2026-11-10", 0, 1],
+    ["rembt", 172.00, "Hôtel + train", "remboursement", "2026-11-10", 0, 1],
     ["hotel", 210.00, "Hôtel Milan", "logement", "2026-11-11", 1, "both"],
     ["taxes", 35.00, "Taxes hôtel sur place", "logement", "2026-11-20", 1, "both"],
     ["ter", 10.40, "TER Menton-Vintimille", "transport", "2026-11-20", 1, "both"]
