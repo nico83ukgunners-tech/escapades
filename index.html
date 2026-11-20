@@ -1555,14 +1555,32 @@ function resizePhoto(file, maxPx = 1000, q = 0.72) {
 let photoTs = null, photoPos = null;
 const toLocalInput = ts => { const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
 async function readExif(file) {
+  // Lecture robuste de l'heure et du GPS d'origine (JPEG, HEIC…) : plusieurs méthodes, la première qui répond gagne
   try {
-    if (!window.exifr) await loadScript("https://cdn.jsdelivr.net/npm/exifr@7/dist/lite.umd.js");
-    const x = await exifr.parse(file, { gps: true, pick: ["DateTimeOriginal", "CreateDate", "latitude", "longitude"] });
-    if (!x) return {};
-    const dt = x.DateTimeOriginal || x.CreateDate;
-    return { ts: dt instanceof Date && !isNaN(dt) ? dt.getTime() : null,
-             pos: (typeof x.latitude === "number" && typeof x.longitude === "number") ? { lat: x.latitude, lng: x.longitude } : null };
+    if (!window.exifr) {
+      try { await loadScript("https://cdn.jsdelivr.net/npm/exifr@7/dist/full.umd.js"); }
+      catch (e) { await loadScript("https://cdn.jsdelivr.net/npm/exifr@7/dist/lite.umd.js"); }
+    }
   } catch (e) { return {}; }
+  let ts = null, pos = null;
+  const toTs = dt => {
+    if (dt instanceof Date && !isNaN(dt)) return dt.getTime();
+    const m = typeof dt === "string" && dt.match(/(\d{4})[:\-](\d{2})[:\-](\d{2})[ T](\d{2}):(\d{2}):?(\d{2})?/);
+    return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime() : null;
+  };
+  try {
+    const t = await exifr.parse(file, { tiff: true, exif: true, gps: true, xmp: true, iptc: false, icc: false, jfif: false, ihdr: false });
+    if (t) {
+      ts = toTs(t.DateTimeOriginal) || toTs(t.CreateDate) || toTs(t.DateCreated) || toTs(t.DateTime) || toTs(t.ModifyDate);
+      if (typeof t.latitude === "number" && typeof t.longitude === "number") pos = { lat: t.latitude, lng: t.longitude };
+    }
+  } catch (e) {}
+  if (!pos) { try { const g = await exifr.gps(file); if (g && typeof g.latitude === "number") pos = { lat: g.latitude, lng: g.longitude }; } catch (e) {} }
+  // Nom de fichier WhatsApp / Android : IMG-20261120-WA0003.jpg → au moins le jour
+  let day = null;
+  const n = (file.name || "").match(/(20\d{2})(\d{2})(\d{2})/);
+  if (n) day = `${n[1]}-${n[2]}-${n[3]}`;
+  return { ts, pos, day };
 }
 
 // Lieu depuis le GPS (OpenStreetMap Nominatim, gratuit, sans clé)
@@ -1714,6 +1732,7 @@ $("momPhoto").onchange = async ev => {
     pendingPhoto = await resizePhoto(file);
     setPhotoPreview(pendingPhoto);
     const x = await readExif(file);
+    if (!x.ts && !x.pos && file.lastModified && Date.now() - file.lastModified < 10 * 60000) x.ts = file.lastModified;   // photo prise à l'instant
     photoTs = x.ts || null; photoPos = x.pos || null;
     const bits = [];
     if (photoTs) { $("momWhen").value = toLocalInput(photoTs); bits.push("🕒 prise le " + new Date(photoTs).toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })); }
@@ -2878,7 +2897,7 @@ async function showPlacement(e, noMeta) {
     <div class="pos-status" style="text-align:left">Souvent des photos reçues par WhatsApp. Dis où les ranger (astuce : demande à Ashleigh de les envoyer en « Document » pour garder l'heure et le lieu).</div>
     ${noMeta.map((it, i) => `<div class="place-row">${thumbs[i] ? `<img src="${thumbs[i]}" alt="">` : ""}<div class="pr">
       <select data-pl="${i}">${opts}</select>
-      <input type="datetime-local" data-plt="${i}" value="${toLocalInput(Date.now())}" hidden></div></div>`).join("")}
+      <input type="datetime-local" data-plt="${i}" value="${it.day ? it.day + "T12:00" : toLocalInput(Date.now())}" hidden></div></div>`).join("")}
     <button class="btn" id="placeAll">Ranger ces photos</button>`;
   $("batchPlace").querySelectorAll("[data-pl]").forEach(sel => sel.onchange = () => { $("batchPlace").querySelector(`[data-plt="${sel.dataset.pl}"]`).hidden = sel.value !== "new"; });
   $("placeAll").onclick = async () => {
@@ -2890,8 +2909,17 @@ async function showPlacement(e, noMeta) {
       try {
         if (v === "new") {
           const ts = new Date($("batchPlace").querySelector(`[data-plt="${i}"]`).value).getTime() || Date.now();
-          state.moments.push({ id: uid(), escId: e.id, ts, date: toLocalInput(ts).slice(0, 10), lieu: "Moment · " + new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
-            place: "", note: "", photo: await resizePhoto(it.file), extra: [], tags: [], rating: 0, par: "both", lat: null, lng: null, fps: [it.fp], hs: it.h ? [it.h] : [], auto: true });
+          const photo = await resizePhoto(it.file);
+          let titre = "Moment · " + new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), tags = [];
+          if (hasAi()) {
+            btn.textContent = "L'IA écrit le titre…";
+            try {
+              const r = await ai([{ role: "user", content: [{ type: "text", text: `Photo d'un voyage (${names(e).join(" → ")}), prise le ${new Date(ts).toLocaleString("fr-FR", { weekday: "long", hour: "2-digit", minute: "2-digit" })}. Titre court, vivant et un peu drôle en français (2 à 5 mots, façon carnet de voyage, sans guillemets ni emoji) et 1 à 3 thèmes parmi : ${Object.entries(TAGS).map(([k, v]) => `${k} (${v[1]})`).join(", ")}. JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: photo } }] }], true);
+              if (r.titre) titre = String(r.titre).slice(0, 60); tags = (r.themes || []).filter(k => TAGS[k]);
+            } catch (er) {}
+          }
+          state.moments.push({ id: uid(), escId: e.id, ts, date: toLocalInput(ts).slice(0, 10), lieu: titre, place: "", note: "", photo, extra: [], tags,
+            sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: 0, par: "both", lat: null, lng: null, fps: [it.fp], hs: it.h ? [it.h] : [], auto: true });
         } else {
           const m = state.moments.find(x => x.id === v); if (!m) continue;
           m.extra = m.extra || []; m.extra.push(await resizePhoto(it.file, 800, 0.68));
@@ -2956,7 +2984,8 @@ async function importBatch(files) {
         const h = await imgHash(f);
         if (isDup(h)) { skipped++; continue; }                                          // même image déjà dans le carnet (même compressée)
         known.add(fp); if (h) knownH.push(h);
-        if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f }); continue; }             // ex. photo WhatsApp : à ranger à la main
+        if (!x.ts && !x.pos && f.lastModified && Date.now() - f.lastModified < 10 * 60000) { x.ts = f.lastModified; if (me) x.pos = { lat: me.lat, lng: me.lng }; }
+        if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f, day: x.day }); continue; }             // ex. photo WhatsApp : à ranger à la main
         const ts = x.ts || f.lastModified || Date.now();
         if (x.ts && (ts < lo || ts > hi)) { outside++; continue; }                       // photo hors des dates du séjour
         items.push({ fp, h, file: f, ts, pos: x.pos || null });
@@ -3049,7 +3078,7 @@ $("batchDone").onclick = () => { closeSheet("sheetBatch"); carnetOrder = "voyage
 $("batchRecap").onclick = () => { closeSheet("sheetBatch"); show("carnet"); openRecapSheet("jour"); };
 
 // ================= Version + imports par lien =================
-const VERSION = "v42";
+const VERSION = "v44";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
