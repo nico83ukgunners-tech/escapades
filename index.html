@@ -2954,8 +2954,12 @@ function playPrev(btn, url) {
   if (songAudio && songAudio.src === url && !songAudio.paused) { songAudio.pause(); btn.textContent = "▶"; return; }
   if (songAudio) songAudio.pause();
   document.querySelectorAll("[data-play]").forEach(b => b.textContent = "▶");
-  songAudio = new Audio(url); songAudio.play().catch(() => toast("Lecture impossible"));
-  btn.textContent = "⏸"; songAudio.onended = () => btn.textContent = "▶";
+  songAudio = new Audio(); songAudio.preload = "auto"; songAudio.src = url;
+  songAudio.onerror = () => { btn.textContent = "▶"; toast("Extrait indisponible pour ce titre"); };
+  songAudio.onended = () => btn.textContent = "▶";
+  btn.textContent = "⏳";
+  songAudio.onplaying = () => btn.textContent = "⏸";
+  songAudio.play().catch(() => { btn.textContent = "▶"; toast("Lecture impossible : vérifie le volume"); });
 }
 async function songSearch(q) {
   q = (q || "").trim(); if (!q) return toast("Tape un titre ou un artiste");
@@ -3663,7 +3667,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v61";
+const VERSION = "v62";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
