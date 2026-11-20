@@ -305,6 +305,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <h2><small>QUI DOIT QUOI</small><span id="depTitle">Dépenses</span></h2>
     <div class="balance" id="balance"></div>
     <button class="btn red" data-new-dep>+ Ajouter une dépense</button>
+    <button class="btn light" id="btnMilanPreset" hidden>⬇︎ Récupérer les dépenses Tricount « Milan Nov '26 »</button>
     <h2><small>PAR CATÉGORIE</small>Où part l'argent</h2>
     <div class="card cats" id="cats"></div>
     <h2><small>HISTORIQUE</small>Toutes les dépenses</h2>
@@ -1314,7 +1315,7 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v9";
+const VERSION = "v10";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
@@ -1325,10 +1326,10 @@ const PRESETS = {
     ["ter", 10.40, "TER Menton-Vintimille", "transport", "2026-11-20", 1, "both"]
   ]
 };
-function runPreset() {
-  const key = location.hash.slice(1);
+function runPreset(forced) {
+  const key = forced || location.hash.slice(1);
   if (!PRESETS[key]) return;
-  history.replaceState(null, "", location.pathname);
+  if (!forced) history.replaceState(null, "", location.pathname);
   const e = active();
   if (!e) { toast("Crée d'abord l'escapade, puis rouvre le lien"); return; }
   let added = 0;
@@ -1342,7 +1343,12 @@ function runPreset() {
   toast(added ? `${added} dépenses ajoutées ✓` : "Dépenses déjà présentes, rattachées à cette escapade ✓");
 }
 runPreset();
-window.addEventListener("hashchange", runPreset);
+window.addEventListener("hashchange", () => runPreset());
+function presetBtn() { $("btnMilanPreset").hidden = !active() || state.depenses.some(d => d.id === "milan-hotel" && d.escId === state.activeId); }
+$("btnMilanPreset").onclick = () => { runPreset("milan-tricount"); presetBtn(); };
+presetBtn();
+const _renderAll = renderAll;
+renderAll = function (fit) { _renderAll(fit); presetBtn(); };
 </script>
 </body>
 </html>
