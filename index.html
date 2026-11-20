@@ -1069,7 +1069,7 @@ async function routeWalks() {
 }
 
 function moveStats(e) {
-  const tr = (e && e.track) || [], r = { pied: 0, transport: 0, byDay: {}, sante: 0 };
+  const tr = pathOf(e), r = { pied: 0, transport: 0, byDay: {}, sante: 0 };
   for (let i = 1; i < tr.length; i++) {
     const a = tr[i - 1], b = tr[i], m = segMode(a, b), d = segKm(a, b), k = dayKey(b.t);
     (r.byDay[k] = r.byDay[k] || { pied: 0, transport: 0 })[m] += d;
@@ -1119,14 +1119,22 @@ function allPoints(e) {
   return pts;
 }
 
+// Chemin complet : points du tracé + photos géolocalisées, dans l'ordre chronologique
+function pathOf(e) {
+  const tr = (e && e.track) || [];
+  const extra = state.moments.filter(m => e && m.escId === e.id && m.lat != null && m.ts)
+    .filter(m => !tr.some(p => Math.abs(p.t - m.ts) < 20 * 60000 && km(p, m) < 0.4))
+    .map(m => ({ lat: m.lat, lng: m.lng, t: m.ts, mom: m.id, mode: m.trMode }));
+  return extra.length ? [...tr, ...extra].sort((a, b) => a.t - b.t) : tr;
+}
 function drawMap(fit) {
   layer.clearLayers();
   const e = active(), pts = [];
-  const tr = e && e.track ? e.track : [];
+  const tr = e && e.track ? e.track : [], path = pathOf(e);
   const kmByDay = {};
   const ms = moveStats(e);
-  for (let i = 1; i < tr.length; i++) {
-    const a = tr[i - 1], b = tr[i], col = dayColor(e, b.t), mode = segMode(a, b), seg = (mode === "pied" && b.route) ? [[a.lat, a.lng], ...b.route, [b.lat, b.lng]] : [[a.lat, a.lng], [b.lat, b.lng]];
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i], col = dayColor(e, b.t), mode = segMode(a, b), seg = (mode === "pied" && b.route) ? [[a.lat, a.lng], ...b.route, [b.lat, b.lng]] : [[a.lat, a.lng], [b.lat, b.lng]];
     L.polyline(seg, { color: "#fff", weight: mode === "pied" ? 8 : 9, opacity: .9 }).addTo(layer);
     L.polyline(seg, mode === "pied"
       ? { color: col, weight: 4, dashArray: "1 8", lineCap: "round" }
@@ -1139,7 +1147,7 @@ function drawMap(fit) {
         L.popup().setLatLng(ev.latlng).setContent(`${mode === "pied" ? "🚶 À pied" : "🚆 Transport"} · ${f1(segKm(a, b))} km${mode === "pied" && b.route ? " (chemin estimé par les rues)" : ""}<br><button class="link" id="segFix">Passer en ${other === "pied" ? "🚶 à pied" : "🚆 transport"}</button>`
           + (b.s ? `<br><span class="meta">Tracé du ${new Date(tr_[0].t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })} · ${f1(dT)} km</span><br><button class="link danger" id="segDel">🗑️ Supprimer tout ce tracé</button>` : "")).openOn(map);
         setTimeout(() => {
-          const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { b.mode = other; delete b.route; delete b.routeKm; save(); map.closePopup(); renderAll(); routeWalks(); toast("Tronçon corrigé ✓"); };
+          const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { if (b.mom) { const mm = state.moments.find(x => x.id === b.mom); if (mm) mm.trMode = other; } b.mode = other; delete b.route; delete b.routeKm; save(); map.closePopup(); renderAll(); routeWalks(); toast("Tronçon corrigé ✓"); };
           const del = document.getElementById("segDel"); if (del) del.onclick = function () { confirmTap(this, () => deleteTrace(b.s)); };
         }, 50);
       }).addTo(layer);
@@ -3267,7 +3275,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v47";
+const VERSION = "v48";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
