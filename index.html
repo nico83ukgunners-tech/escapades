@@ -580,6 +580,7 @@ let me = null, pick = null, map, layer, pickMarker = null;
 let watchId = null, wakeLock = null;
 let editEscId = null, pendingPhoto = null, carnetFilter = "tous";
 let carnetOrder = "voyage";
+let carnetIds = [], noClick = false, dragTimer = null, drg = null;
 let momTags = new Set(), momRating = 0, momWho = "both", editMomentId = null;
 const TAGS = {
   sympa: ["⭐", "Endroit sympa"], reel: ["🎬", "Décor photo / Reel"], food: ["🍝", "Bonne table"], apero: ["🍹", "Apéro"],
@@ -1640,7 +1641,6 @@ renderAll(true);
 aiUI();
 
 // ================= Déplacer une photo du carnet (appui long + glisser) =================
-let carnetIds = [], noClick = false, dragTimer = null, drg = null;
 function clearDrop() { document.querySelectorAll(".drop-before,.drop-after").forEach(x => x.classList.remove("drop-before", "drop-after")); }
 $("polas").addEventListener("touchstart", e => {
   const el = e.target.closest(".pola"); if (!el) return;
@@ -1699,7 +1699,7 @@ document.addEventListener("touchend", () => {
 document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
 
 // ================= Version + imports par lien =================
-const VERSION = "v19";
+const VERSION = "v20";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
