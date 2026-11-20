@@ -350,6 +350,12 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .rc-strip{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;white-space:normal;-webkit-overflow-scrolling:touch}
 .rc-strip img{width:64px;height:64px;object-fit:cover;border-radius:8px;flex:0 0 auto;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .rc-list{white-space:normal}
+.rc-pick{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:6px 0 10px}
+.rc-pick button{position:relative;aspect-ratio:1;border:3px solid #6b4bd8;border-radius:10px;padding:0;overflow:hidden;background:#f1eadc;font-size:20px}
+.rc-pick img{width:100%;height:100%;object-fit:cover;display:block}
+.rc-pick i{position:absolute;top:2px;right:2px;background:#6b4bd8;color:#fff;border-radius:50%;width:20px;height:20px;font:700 12px/20px sans-serif;font-style:normal}
+.rc-pick button.off{border-color:transparent;opacity:.35}
+.rc-pick button.off i{display:none}
 .rc-row{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #e6dccb}
 .rc-row:last-child{border-bottom:0}
 .rc-row img,.rc-row .rc-ph{width:58px;height:58px;object-fit:cover;border-radius:8px;flex:0 0 auto;background:#f1eadc;display:flex;align-items:center;justify-content:center;font-size:22px}
@@ -2535,23 +2541,35 @@ function montageBrief(e, list, names_, o = {}) {
   const recapPart = r ? `
 RÉCAP DÉJÀ ÉCRIT (à suivre)
 ${r.journal ? "Journal : " + r.journal + "\n" : ""}${kind === "story" && r.story && r.story.length ? "\nSTORY — une diapo par ligne (fichier → texte à l'écran)\n" + r.story.map((x, i) => { const m = rcMoment(x, i, ms, "story"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(photo au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${kind === "reel" && r.plans && r.plans.length ? "\nPLANS DU REEL (fichier → durée et idée)\n" + r.plans.map((x, i) => { const m = rcMoment(x, i, ms, "plans"); return `${i + 1}. ${m && fileOf(m) ? fileOf(m) : "(au choix)"} → ${rcText(x)}`; }).join("\n") + "\n" : ""}${r.legende ? "\nLégende : " + r.legende + "\n" : ""}${r.hashtags ? "Hashtags : " + r.hashtags.join(" ") + "\n" : ""}${r.musique ? "Musique : " + r.musique + "\n" : ""}` : "";
-  const ask = kind === "story"
-    ? `Crée-moi une Story Instagram (9:16, 1080×1920) : une image par diapo avec la photo et le texte à l'écran ci-dessous, style carnet de voyage (bandeau titre, annotations manuscrites, date, lieu). Rends-moi les images prêtes à poster.`
-    : r && r.plans ? `Crée-moi la vidéo du Reel Instagram vertical (9:16, 1080×1920, 30 à 45 s) en suivant les plans ci-dessous : chaque fichier à sa place, avec sa durée, les textes à l'écran, des transitions dynamiques, un titre d'ouverture et une fin. Rends-moi le fichier vidéo MP4 prêt à poster.`
-    : `Crée-moi la vidéo du Reel Instagram vertical (9:16, 1080×1920, 30 à 45 s) avec ces médias dans l'ordre : découpage plan par plan, textes à l'écran courts avec le ton des notes, transitions, titre d'ouverture et fin. Mets en avant les moments 🎬 et ❤️❤️❤️. Rends-moi le fichier vidéo MP4 prêt à poster.`;
+  const n = list.length, durReel = n <= 6 ? "12 à 18 s" : n <= 12 ? "18 à 25 s" : "25 à 30 s";
+  const ask = (kind === "story"
+    ? `Crée-moi une STORY Instagram en VIDÉO verticale MP4 (9:16, 1080×1920, 30 i/s) de 15 s maximum (la durée d'une story) : 4 à 6 moments forts, environ 2,5 à 3 s chacun, en suivant les textes de story ci-dessous.`
+    : `Crée-moi un REEL Instagram en VIDÉO verticale MP4 (9:16, 1080×1920, 30 i/s) de ${durReel} : 8 à 14 plans${r && r.plans ? " en suivant les plans ci-dessous (garde l'ordre et l'idée, mais raccourcis les durées si besoin)" : ""}.`) + `
+
+STYLE VOULU — fun, coloré, rythmé, qui donne envie de voyager (PAS un diaporama)
+- Accroche dès la 1re seconde : la meilleure photo en plein écran + gros titre animé « ${names(e).join(" → ")} 🇮🇹 ». Jamais écrire « pack montage ».
+- Photos PLEIN ÉCRAN 9:16 (recadrées pour remplir l'écran), jamais en petit sur un fond uni.
+- Mouvement sur CHAQUE plan : zoom avant ou arrière lent (Ken Burns 100→115 %), punch-in, léger décalage ; transitions rapides (glissé, whip, flash blanc, zoom) — pas de fondu lent.
+- Rythme calé sur 120 BPM : coupes toutes les 0,5 / 1 / 1,5 s, 2 s max sauf 1 ou 2 moments forts. Le dernier plan dure 1,5 s.
+- Couleurs : étalonnage chaud et lumineux (+contraste, +saturation ~20 %, légère vignette) ; les photos ternes ou de brume passent en coupe très rapide.
+- Textes : courts (5 mots max), police très grasse (type Montserrat ExtraBold / Anton), blanc avec contour ou ombre noire, apparition « pop » animée, emojis ; garder libres le haut (250 px) et le bas (400 px) pour l'interface Instagram.
+- Versions « carnet » : 2 ou 3 au maximum, comme arrêt sur image sur les moments drôles ; le reste en photos brutes plein écran.
+- Fin : photo du couple + « À suivre… 📍 ${names(e)[1]} ».
+- PAS de musique dans la vidéo (je l'ajouterai sur Instagram) : le rythme à 120 BPM permettra de caler un son tendance.
+- Rends-moi le fichier MP4 (H.264), puis 3 idées de sons Instagram qui iraient bien.`;
   const lines = list.map((m, i) => {
     const t = new Date(m.ts);
     return `${String(i + 1).padStart(2, "0")} · ${t.toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
    Fichier : ${names_[i] || "(pas de média)"}${m.video ? ` (vidéo ${fmtDur(m.dur)})` : ""}
    Titre : ${m.lieu || "—"}${m.place ? `\n   Lieu : ${m.place}` : ""}${m.note ? `\n   Note : ${m.note}` : ""}${tagsOf(m).length ? `\n   Thèmes : ${tagsOf(m).map(k => TAGS[k] ? TAGS[k][0] + " " + TAGS[k][1] : k).join(", ")}` : ""}${m.rating ? `\n   Coup de cœur : ${"❤️".repeat(m.rating)}` : ""}`;
   }).join("\n\n");
-  return `PACK MONTAGE — ${names(e).join(" → ").toUpperCase()}
+  return `${kind === "story" ? "STORY" : "REEL"} INSTAGRAM — ${names(e).join(" → ").toUpperCase()}
 ${o.period || fmt(e.debut, { day: "numeric", month: "long", year: "numeric" })} · ${list.length} moments · 🚆 ${f1(st.transport)} km en transport · 🚶 ${f1(st.pied)} km à pied
 
 DEMANDE À CLAUDE
 ${ask}
 Les fichiers joints sont numérotés dans l'ordre chronologique (le nom indique l'heure et le titre du moment).${packCarnet() ? `
-Chaque photo existe en 2 versions : brute (ex. 03_08h51_titre.jpg) et habillée façon page de carnet (…_carnet.jpg ou …_illustre.jpg, avec titre, note, drapeau et date). Pour chaque plan, choisis la version qui rend le mieux : la brute pour les plans rapides et dynamiques, l'habillée pour les moments forts ou drôles, l'ouverture et la fin. Évite de répéter la même photo sous ses deux formes.` : ""}
+Chaque photo existe en 2 versions : brute (ex. 03_08h51_titre.jpg) et habillée façon page de carnet (…_carnet.jpg ou …_illustre.jpg, avec titre, note, drapeau et date). Pour chaque plan, choisis la version qui rend le mieux : la brute pour les plans rapides et dynamiques, l'habillée pour 2 ou 3 moments drôles maximum. Évite de répéter la même photo sous ses deux formes.` : ""}
 ${recapPart}
 MOMENTS (détail)
 ${lines}
@@ -2770,18 +2788,26 @@ function recapHtml(r) {
   const lst = (t, arr, k) => arr && arr.length ? `<h4>${t}</h4>${rcList(arr, k, ms)}<button class="link" data-copy="${k}">Copier les textes</button>${k === "plans" && strip.length ? ` · <button class="link" id="rcShare">📤 Envoyer les photos dans l'ordre</button>` : ""}` : "";
   return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
 }
+const rcOff = new Set();
 function sendHtml() {
+  const e = active(), ms = e ? recapMoments(e) : [], on = ms.filter(m => !rcOff.has(m.id)).length;
   return `<div class="sub" style="margin-top:14px" id="rcSend">ENVOYER À CLAUDE POUR LE MONTAGE</div>
+  <div class="pos-status" style="text-align:left;display:flex;justify-content:space-between;align-items:center"><span id="rcPickN">${on}/${ms.length} photos choisies</span><span><button class="link" id="rcAll">Toutes</button> · <button class="link" id="rcNone">Aucune</button></span></div>
+  <div class="rc-pick">${ms.map(m => { const img = safeImg(m.photo); return `<button class="${rcOff.has(m.id) ? "off" : ""}" data-pick="${m.id}">${img ? `<img src="${img}" alt="">` : `<span>${m.video ? "🎬" : "📍"}</span>`}<i>✓</i></button>`; }).join("")}</div>
   <label class="pos-status" style="display:flex;gap:8px;align-items:center;text-align:left;margin:6px 0"><input type="checkbox" id="rcCarnet" ${packCarnet() ? "checked" : ""}> Joindre aussi les versions « carnet » (Claude choisit, sinon photos brutes seulement)</label>
   <div class="row2"><button class="btn ai-btn" id="rcToReel">🎬 Reel vidéo</button><button class="btn" id="rcToStory">📱 Story</button></div>
   <button class="btn light" id="rcCopyBrief" ${lastBrief ? "" : "hidden"}>📋 Copier le brief (à coller dans Claude)</button>
   <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude.</p>`;
 }
 function bindRecapCopy(r) {
+  const upN = () => { const e = active(), ms = recapMoments(e), n = $("rcPickN"); if (n) n.textContent = `${ms.filter(m => !rcOff.has(m.id)).length}/${ms.length} photos choisies`; };
+  $("recapOut").querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const id = b.dataset.pick; rcOff.has(id) ? rcOff.delete(id) : rcOff.add(id); b.classList.toggle("off", rcOff.has(id)); upN(); });
+  if ($("rcAll")) $("rcAll").onclick = () => { rcOff.clear(); $("recapOut").querySelectorAll("[data-pick]").forEach(b => b.classList.remove("off")); upN(); };
+  if ($("rcNone")) $("rcNone").onclick = () => { recapMoments(active()).forEach(m => rcOff.add(m.id)); $("recapOut").querySelectorAll("[data-pick]").forEach(b => b.classList.add("off")); upN(); };
   const ck = $("rcCarnet"); if (ck) ck.onchange = () => localStorage.setItem("esc-pack-carnet", ck.checked ? "1" : "0");
   const cb = $("rcCopyBrief"); if (cb) cb.onclick = async () => { try { await navigator.clipboard.writeText(lastBrief); toast("Brief copié ✓ · colle-le dans Claude"); } catch (er) { toast("Copie impossible"); } };
   ["rcToReel", "rcToStory"].forEach(id => { const b = $(id); if (b) b.onclick = async () => {
-    const e = active(), list = recapMoments(e); if (!list.length) return toast("Pas de moments sur cette période");
+    const e = active(), list = recapMoments(e).filter(m => !rcOff.has(m.id)); if (!list.length) return toast("Choisis au moins une photo");
     const kind = id === "rcToStory" ? "story" : "reel", lbl = b.textContent; b.disabled = true; b.textContent = "Préparation…";
     try {
       const { files, fnames } = await packFiles(list);
@@ -3366,7 +3392,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v53";
+const VERSION = "v54";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
