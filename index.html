@@ -2029,7 +2029,7 @@ function openViewer(id) {
     ${m.place ? `<div class="pos-status" style="text-align:left;margin-top:4px">📍 ${esc(m.place)}</div>` : ""}
     ${tagsOf(m).length ? `<div class="viewer-tags">${tagsOf(m).map(k => TAGS[k] ? `<span>${TAGS[k][0]} ${TAGS[k][1]}</span>` : "").join("")}</div>` : ""}
     ${m.video ? `<video class="viewer-video" id="vVideo" controls playsinline ${img ? `poster="${img}"` : ""}></video>` : (img ? `<div class="ia-wrap" id="vImgWrap"><img class="viewer-img${iaJustDone === id ? " ia-done" : ""}" src="${img}" alt=""></div>` : "")}
-    ${(m.extra || []).length ? `<div class="gallery">${m.extra.map(u => safeImg(u) ? `<img src="${u}" alt="">` : "").join("")}</div><div class="pos-status" style="text-align:left">${m.extra.length + 1} photos · glisse pour voir</div>` : ""}
+    ${(m.extra || []).length ? `<div class="gallery">${m.extra.map(u => safeImg(u) ? `<img src="${u}" alt="">` : "").join("")}</div><div class="pos-status" style="text-align:left">${m.extra.length + 1} photos · glisse pour voir · <button class="link" id="vSplit">✂️ Séparer en ${m.extra.length + 1} moments</button></div>` : ""}
     ${iaErr[id] ? `<div class="ia-err"><b>⚠️ La version IA n'a pas marché</b>${esc(iaExplain(iaErr[id]))}<code>${esc(iaErr[id])}</code></div>` : ""}
     ${m.note ? `<div class="viewer-note">${esc(m.note)}</div>` : ""}
     <button class="btn" id="vEdit">✏️ Modifier (titre, thèmes…)</button>
@@ -2040,6 +2040,16 @@ function openViewer(id) {
     <button class="link" data-close style="float:right">Fermer</button>`;
   openSheet("sheetView");
   $("vEdit").onclick = () => { closeSheet("sheetView"); openMomentSheet(id); };
+  if ($("vSplit")) $("vSplit").onclick = function () { confirmTap(this, () => {
+    const ex = m.extra || [], xts = m.xts || [];
+    ex.forEach((u, k) => {
+      const ts = xts[k] || m.ts + (k + 1) * 60000;
+      state.moments.push({ id: uid(), escId: m.escId, ts, date: toLocalInput(ts).slice(0, 10), lieu: m.lieu, place: m.place, note: "", photo: u, extra: [],
+        tags: [...(m.tags || [])], rating: 0, par: m.par || "both", lat: m.lat, lng: m.lng, hs: m.hs && m.hs[k + 1] ? [m.hs[k + 1]] : [], auto: true });
+    });
+    m.extra = []; m.xts = []; if (m.hs) m.hs = m.hs.slice(0, 1);
+    save(); renderAll(); closeSheet("sheetView"); toast(`✂️ ${ex.length + 1} moments séparés · renomme-les avec ✏️`);
+  }); };
   if ($("vStyle")) $("vStyle").onclick = async () => { const b = $("vStyle"); b.disabled = true; b.textContent = "Mise en page…"; try { await styleCarnet(m); openViewer(id); toast("Page de carnet créée ✓"); } catch (er) { toast("Mise en page impossible"); b.disabled = false; } };
   if ($("vStyleAi")) $("vStyleAi").onclick = function () { if (iaBusy[id]) return; confirmTap(this, async () => {
     iaBusy[id] = Date.now(); delete iaErr[id]; iaOverlay(id);
@@ -3488,7 +3498,7 @@ async function importBatch(files) {
   let shots = 0, outside = 0, skipped = 0, attached = 0;
   // Empreintes visuelles des photos déjà dans le voyage (calculées une fois puis gardées)
   const tripMs = state.moments.filter(m => m.escId === e.id);
-  const knownH = [];
+  const knownH = []; // { h, ts } : ts = heure EXIF quand on la connaît
   for (let i = 0; i < tripMs.length; i++) {
     const m = tripMs[i];
     if (!m.hs) {
@@ -3496,9 +3506,10 @@ async function importBatch(files) {
       m.hs = [];
       for (const u of [m.photo, ...(m.extra || [])]) if (safeImg(u)) { const h = await imgHash(u); if (h) m.hs.push(h); }
     }
-    knownH.push(...m.hs);
+    m.hs.forEach((h, k) => knownH.push({ h, ts: k === 0 ? m.ts : (m.xts && m.xts[k - 1]) || null }));
   }
-  const isDup = h => h && knownH.some(k => hamming(k, h) <= 6);
+  // même image = empreinte très proche, sauf si les deux ont une heure EXIF différente (deux photos prises à la suite)
+  const isDup = (h, ts) => h && knownH.some(k => hamming(k.h, h) <= 6 && !(ts && k.ts && Math.abs(ts - k.ts) > 3000));
   // 1. Lecture : heure + lieu + empreinte de chaque fichier
   const items = [], noMeta = [];
   for (let i = 0; i < files.length; i++) {
@@ -3512,7 +3523,7 @@ async function importBatch(files) {
         const t = await videoThumb(f);
         const h = t.thumb ? await imgHash(t.thumb) : null;
         if (isDup(h)) { skipped++; continue; }
-        if (h) knownH.push(h);
+        if (h) knownH.push({ h, ts: null });
         items.push({ fp, h, video: f, thumb: t.thumb, dur: t.dur, ts: f.lastModified || Date.now(), pos: null });
       } else {
         const x = await readExif(f);
@@ -3520,8 +3531,8 @@ async function importBatch(files) {
         const fp = "p|" + f.size + "|" + (x.ts || 0);
         if (known.has(fp) || known.has(f.name + "|" + f.size)) { skipped++; continue; }
         const h = await imgHash(f);
-        if (isDup(h)) { skipped++; continue; }                                          // même image déjà dans le carnet (même compressée)
-        known.add(fp); if (h) knownH.push(h);
+        if (isDup(h, x.ts)) { skipped++; continue; }                                    // même image déjà dans le carnet (même compressée)
+        known.add(fp); if (h) knownH.push({ h, ts: x.ts || null });
         if (!x.ts && !x.pos && f.lastModified && Date.now() - f.lastModified < 10 * 60000) { x.ts = f.lastModified; if (me) x.pos = { lat: me.lat, lng: me.lng }; }
         if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f, day: x.day }); continue; }             // ex. photo WhatsApp : à ranger à la main
         const ts = x.ts || f.lastModified || Date.now();
@@ -3542,11 +3553,12 @@ async function importBatch(files) {
       if (m.escId !== e.id || m.video) continue;
       const dt = Math.abs(m.ts - it.ts);
       const close = !it.pos || m.lat == null || km(it.pos, { lat: m.lat, lng: m.lng }) < 0.3;
-      if (dt < 20 * 60000 && close && dt < bestDt) { best = m; bestDt = dt; }
+      if (dt < 3 * 60000 && close && dt < bestDt) { best = m; bestDt = dt; }
     }
     if (!best) { rest.push(it); continue; }
     try {
       best.extra = best.extra || []; best.extra.push(await resizePhoto(it.file, 800, 0.68));
+      best.xts = best.xts || []; best.xts[best.extra.length - 1] = it.ts;
       best.hs = best.hs || []; if (it.h) best.hs.push(it.h);
       best.fps = best.fps || []; best.fps.push(it.fp);
       if (best.lat == null && it.pos) { best.lat = it.pos.lat; best.lng = it.pos.lng; }
@@ -3554,12 +3566,12 @@ async function importBatch(files) {
     } catch (er) {}
   }
   items.length = 0; items.push(...rest);
-  // 2. Regroupement : même endroit (< 300 m) et même moment (< 20 min) = un seul moment
+  // 2. Regroupement : seulement les photos prises en rafale (< 3 min, < 150 m) ; sinon un moment par photo
   const groups = [];
   for (const it of items) {
     const g = groups[groups.length - 1];
     const lastPos = g && [...g.items].reverse().find(x => x.pos);
-    const near = !g ? false : (it.ts - g.items[g.items.length - 1].ts < 20 * 60000) && (!it.pos || !lastPos || km(it.pos, lastPos.pos) < 0.3);
+    const near = !g ? false : (it.ts - g.items[g.items.length - 1].ts < 3 * 60000) && (!it.pos || !lastPos || km(it.pos, lastPos.pos) < 0.15);
     if (near && !it.video && !g.items.some(x => x.video)) g.items.push(it); else groups.push({ items: [it] });
   }
   // 3. Création des moments
@@ -3593,7 +3605,7 @@ JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: 
       } catch (er) {}
     }
     state.moments.push({ id: uid(), escId: e.id, ts: first.ts, date: toLocalInput(first.ts).slice(0, 10), lieu: titre, place, note: "",
-      photo, extra, video, dur, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: 0, par: "both",
+      photo, extra, xts: g.items.slice(1).map(x => x.ts), video, dur, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: 0, par: "both",
       lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, fps: g.items.map(x => x.fp), hs: g.items.map(x => x.h).filter(Boolean), auto: true });
     // le lieu de la photo s'ajoute au trajet
     if (pos) {
@@ -3738,7 +3750,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v66";
+const VERSION = "v67";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
