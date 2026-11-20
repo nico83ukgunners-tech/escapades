@@ -203,6 +203,13 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .seg .chip{flex:1;text-align:center}
 .amount-in{font-family:var(--mono);font-size:30px;font-weight:700;text-align:center;padding:14px}
 
+.ai-btn{background:linear-gradient(135deg,#6b4bd8,#c2185b)!important;color:#fff!important;border:0!important}
+.idea{background:#fff;border-radius:14px;padding:12px 14px;margin:10px 0;border-left:5px solid #6b4bd8}
+.idea b{font-family:var(--display);font-size:17px}
+.idea p{margin:4px 0 8px;font-size:14px;color:var(--ink)}
+.idea .meta{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.idea button{background:none;border:1.5px solid var(--navy);color:var(--navy);border-radius:999px;padding:6px 12px;font:600 13px var(--sans)}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -308,6 +315,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
       <button class="btn" id="spotSave">Ajouter à la liste</button>
     </div>
     <div id="spotsList"></div>
+    <button class="btn ai-btn" id="btnIdeas" data-ai-only hidden>✨ Idées de spots autour de moi</button>
+    <div id="ideas"></div>
   </section>
 
   <!-- ============ PASSEPORT ============ -->
@@ -318,6 +327,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <h2><small>TICKET SOUVENIR</small>Récap de l'escapade</h2>
     <div class="receipt" id="recap"></div>
     <button class="btn" id="btnRecap">Copier le récap</button>
+    <button class="btn ai-btn" id="btnCaption" data-ai-only hidden>✨ Écrire la légende Instagram</button>
+    <div class="receipt" id="caption" hidden style="margin-top:12px;font-family:var(--sans);font-size:15px"></div>
+    <button class="btn light" id="btnCopyCaption" hidden>Copier la légende</button>
 
     <h2><small>ENVOYER À L'AUTRE</small>Partage</h2>
     <div class="card">
@@ -327,6 +339,21 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
         <button class="btn" id="btnExport">Exporter</button>
         <button class="btn light" id="btnImport">Importer</button>
       </div>
+    </div>
+
+    <h2><small>FACULTATIF</small>Assistant IA</h2>
+    <div class="card">
+      <p style="margin:0;color:var(--muted);font-size:14px">Colle ta clé OpenAI pour lire les tickets, trouver des spots et écrire tes légendes. Elle reste uniquement sur ce téléphone et n'est jamais partagée.</p>
+      <label class="f">Clé API OpenAI</label>
+      <input id="aiKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-…">
+      <label class="f">Modèle</label>
+      <input id="aiModel" autocapitalize="off" spellcheck="false" placeholder="gpt-5-mini">
+      <div class="row2">
+        <button class="btn" id="aiSave">Enregistrer</button>
+        <button class="btn light" id="aiTest">Tester</button>
+      </div>
+      <button class="link danger" id="aiClear">Effacer la clé de ce téléphone</button>
+      <div class="pos-status" id="aiStatus" style="text-align:left"></div>
     </div>
   </section>
 </main>
@@ -412,6 +439,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
       <span class="big">🧾</span><span>Photo du ticket</span>
       <input id="depPhoto" type="file" accept="image/*">
     </label>
+    <button class="btn ai-btn" id="depAi" hidden>✨ Remplir avec l'IA depuis le ticket</button>
     <button class="btn light" id="depOcr" hidden>🔍 Lire le montant sur le ticket (essai)</button>
     <label class="f">Date</label>
     <input id="depDate" type="date">
@@ -909,7 +937,7 @@ function openDepSheet() {
   $("depDevise").value = /london|londres|uk|angleterre|dublin|irlande/i.test(names(e)[1]) && !/dublin|irlande/i.test(names(e)[1]) ? "GBP" : "EUR";
   $("depPick").querySelectorAll("img").forEach(i => i.remove());
   $("depPick").querySelectorAll("span").forEach(s => s.hidden = false);
-  $("depOcr").hidden = true;
+  $("depOcr").hidden = true; $("depAi").hidden = true;
   segButtons("depCats", Object.entries(CATS).map(([k, [ic, l]]) => [k, `${ic} ${l}`]), dep.cat, v => dep.cat = v);
   segButtons("depPayeur", [[0, state.people[0]], [1, state.people[1]]], 0, v => dep.payePar = v);
   segButtons("depPour", [["both", "Les deux"], [0, state.people[0]], [1, state.people[1]]], "both", v => dep.pour = v);
@@ -922,7 +950,7 @@ $("depPhoto").onchange = async ev => {
     const box = $("depPick");
     box.querySelectorAll("img").forEach(i => i.remove());
     box.querySelectorAll("span").forEach(s => s.hidden = true);
-    if (dep.photo) { const im = new Image(); im.src = dep.photo; box.prepend(im); $("depOcr").hidden = false; }
+    if (dep.photo) { const im = new Image(); im.src = dep.photo; box.prepend(im); $("depOcr").hidden = hasAi(); $("depAi").hidden = !hasAi(); }
   } catch (e) { toast(e.message); }
 };
 // Lecture du ticket : Tesseract.js, gratuit, tourne dans le téléphone (chargé seulement si on appuie)
@@ -968,6 +996,105 @@ ${d.cat === "remboursement" ? "Remboursé à " + P(d.pour) : d.pour === "both" ?
   openSheet("sheetView");
   $("vDel").onclick = function () { confirmTap(this, () => { state.depenses = state.depenses.filter(x => x.id !== id); save(); closeSheet("sheetView"); renderAll(); }); };
 }
+
+// ================= Assistant IA (clé stockée seulement sur ce téléphone) =================
+const AI_KEY = "escapades-ai";
+let aiCfg = { key: "", model: "gpt-5-mini" };
+try { aiCfg = { ...aiCfg, ...JSON.parse(localStorage.getItem(AI_KEY) || "{}") }; } catch (e) {}
+const hasAi = () => !!aiCfg.key;
+function aiUI() {
+  $("aiKey").value = aiCfg.key ? "••••••••" + aiCfg.key.slice(-4) : "";
+  $("aiModel").value = aiCfg.model || "gpt-5-mini";
+  $("aiStatus").textContent = hasAi() ? "✓ Clé enregistrée sur ce téléphone" : "Aucune clé : les fonctions ✨ sont masquées";
+  document.querySelectorAll("[data-ai-only]").forEach(b => b.hidden = !hasAi());
+}
+$("aiSave").onclick = () => {
+  const k = $("aiKey").value.trim();
+  if (k && !k.startsWith("••")) aiCfg.key = k;
+  aiCfg.model = $("aiModel").value.trim() || "gpt-5-mini";
+  try { localStorage.setItem(AI_KEY, JSON.stringify(aiCfg)); } catch (e) {}
+  aiUI(); toast(hasAi() ? "Clé enregistrée ✓" : "Colle d'abord ta clé");
+};
+$("aiClear").onclick = function () {
+  confirmTap(this, () => { aiCfg.key = ""; try { localStorage.setItem(AI_KEY, JSON.stringify(aiCfg)); } catch (e) {} aiUI(); toast("Clé effacée"); });
+};
+$("aiTest").onclick = async () => {
+  if (!hasAi()) return toast("Enregistre d'abord ta clé");
+  $("aiStatus").textContent = "Test en cours…";
+  try { const r = await ai([{ role: "user", content: "Réponds juste: OK" }]); $("aiStatus").textContent = "✓ Ça marche : " + r.slice(0, 40); }
+  catch (e) { $("aiStatus").textContent = "✗ " + e.message; }
+};
+async function ai(messages, json) {
+  if (!hasAi()) throw new Error("Pas de clé API");
+  const body = { model: aiCfg.model || "gpt-5-mini", messages };
+  if (json) body.response_format = { type: "json_object" };
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + aiCfg.key }, body: JSON.stringify(body)
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const m = (d.error && d.error.message) || ("Erreur " + r.status);
+    if (r.status === 401) throw new Error("Clé refusée : vérifie-la");
+    if (r.status === 429) throw new Error("Plus de crédit ou trop de demandes : vérifie la facturation OpenAI");
+    throw new Error(m);
+  }
+  const txt = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || "";
+  return json ? JSON.parse(txt) : txt.trim();
+}
+
+// Ticket → dépense
+$("depAi").onclick = async () => {
+  const btn = $("depAi"); btn.disabled = true; btn.textContent = "L'IA lit le ticket…";
+  try {
+    const r = await ai([{ role: "user", content: [
+      { type: "text", text: `Lis ce ticket de caisse. Réponds en JSON : {"montant": nombre total payé, "devise": "EUR" ou "GBP", "categorie": une de [${Object.keys(CATS).join(", ")}], "description": 2 à 4 mots en français (nom du lieu ou ce qui a été acheté), "date": "AAAA-MM-JJ" ou null}` },
+      { type: "image_url", image_url: { url: dep.photo } } ] }], true);
+    if (r.montant > 0) $("depMontant").value = Number(r.montant).toFixed(2);
+    if (r.devise === "GBP" || r.devise === "EUR") $("depDevise").value = r.devise;
+    if (r.description) $("depDesc").value = r.description;
+    if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) $("depDate").value = r.date;
+    if (CATS[r.categorie]) { dep.cat = r.categorie; document.querySelectorAll("#depCats button").forEach(b => b.classList.toggle("on", b.dataset.v === r.categorie)); }
+    toast("Rempli ✓ Vérifie le montant et qui a payé");
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = "✨ Remplir avec l'IA depuis le ticket";
+};
+
+// Idées de spots
+$("btnIdeas").onclick = () => {
+  const btn = $("btnIdeas"); btn.disabled = true; btn.textContent = "Je cherche autour de toi…";
+  const run = async () => {
+    try {
+      const e = active();
+      const where = me ? `coordonnées GPS ${me.lat.toFixed(4)}, ${me.lng.toFixed(4)}` : `la ville de ${e ? names(e)[1] : "destination inconnue"}`;
+      const r = await ai([{ role: "user", content: `Nous sommes un couple en week-end, actuellement près de ${where}. Propose 6 idées variées à faire tout près (café ou bar sympa, vue, balade, spot photo pour un Reel Instagram, resto local, lieu insolite). Uniquement des lieux réels et connus que tu es sûr d'exister. JSON : {"idees":[{"nom":"","quartier":"","type":"","pourquoi":"une phrase"}]}` }], true);
+      const list = (r.idees || []).slice(0, 8);
+      $("ideas").innerHTML = list.length ? `<p class="pos-status" style="text-align:left">Suggestions de l'IA, à vérifier avant d'y aller.</p>` + list.map((x, i) => `
+        <div class="idea"><b>${esc(x.nom)}</b><div class="meta">${esc(x.type || "")} · ${esc(x.quartier || "")}</div>
+        <p>${esc(x.pourquoi || "")}</p><button data-idea="${i}">+ Ajouter aux spots</button></div>`).join("") : `<div class="empty">Aucune idée trouvée</div>`;
+      $("ideas").querySelectorAll("[data-idea]").forEach(b => b.onclick = () => {
+        const x = list[+b.dataset.idea];
+        state.spots.push({ id: uid(), nom: x.nom, ou: x.quartier || "", fait: false, lat: null, lng: null, ts: Date.now() });
+        save(); renderAll(); b.textContent = "✓ Ajouté"; b.disabled = true;
+      });
+    } catch (e) { toast(e.message); }
+    btn.disabled = false; btn.textContent = "✨ Idées de spots autour de moi";
+  };
+  me ? run() : locate(run, true);
+  if (!me) setTimeout(() => { if (btn.disabled && !me) run(); }, 16000);
+};
+
+// Légende Instagram
+$("btnCaption").onclick = async () => {
+  const btn = $("btnCaption"); btn.disabled = true; btn.textContent = "J'écris la légende…";
+  try {
+    const t = await ai([{ role: "user", content: `Écris une légende Instagram courte et naturelle (3 à 5 lignes, quelques emojis, 5 hashtags à la fin) pour le carrousel photo d'un week-end en couple. Ton complice, pas cliché. Voici le récap :\n${recapText()}` }]);
+    $("caption").textContent = t; $("caption").hidden = false; $("btnCopyCaption").hidden = false;
+  } catch (e) { toast(e.message); }
+  btn.disabled = false; btn.textContent = "✨ Écrire la légende Instagram";
+};
+$("btnCopyCaption").onclick = async () => {
+  try { await navigator.clipboard.writeText($("caption").textContent); toast("Légende copiée ✓"); } catch (e) { toast("Copie impossible"); }
+};
 
 // ================= Spots =================
 function renderSpots() {
@@ -1077,6 +1204,7 @@ function renderAll(fit) {
 load();
 initMap();
 renderAll(true);
+aiUI();
 </script>
 </body>
 </html>
