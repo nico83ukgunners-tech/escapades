@@ -2621,7 +2621,7 @@ const _unusedPaste = async () => {
 $("santeSave").onclick = () => {
   const e = active(); if (!e) return;
   const day = $("santeDay").value || dayKey(Date.now());
-  const pas = parseInt(String($("santePas").value).replace(/[^\d]/g, "")) || 0, kmv = parseFloat(String($("santeKm").value).replace(",", ".")) || 0;
+  const pas = Math.round(num($("santePas").value)), kmv = num($("santeKm").value);
   if (!pas && !kmv) return toast("Indique les pas ou les km");
   e.health = e.health || {}; e.health[day] = { pas, km: kmv };
   save(); closeSheet("sheetSante"); renderAll(); toast("🚶 Marche du " + dayLabel(day) + " mise à jour ✓");
@@ -2633,6 +2633,13 @@ $("santeDel").onclick = function () {
 // ================= Lire une capture (Santé / Google Maps) avec l'IA =================
 const MODES = { marche: "🚶 Marche", train: "🚆 Train", metro: "🚇 Métro", tram: "🚊 Tram", bus: "🚌 Bus", voiture: "🚗 Voiture", velo: "🚲 Vélo", bateau: "⛴️ Bateau", avion: "✈️ Avion" };
 let capData = null;
+// Nombres écrits à la française ou à l'anglaise : "3 395", "3.395", "2,29", 2.29
+function num(v) {
+  if (typeof v === "number") return isFinite(v) ? v : 0;
+  let t = String(v || "").replace(/[\s\u202f\u00a0]/g, "").replace(/[^\d.,-]/g, "");
+  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) t = t.replace(/[.,]/g, "");      // séparateur de milliers
+  return parseFloat(t.replace(",", ".")) || 0;
+}
 // Sans clé : lecture des chiffres de l'app Santé directement sur le téléphone (Tesseract)
 async function ocrSante(f) {
   try {
@@ -2683,8 +2690,8 @@ function openCapSheet() {
   if (r.type === "sante") {
     $("capTitle").textContent = "🩺 Activité du jour";
     $("capBody").innerHTML = `<div class="row2" style="gap:10px">
-      <div><label class="f">Pas</label><input id="capPas" type="number" inputmode="numeric" value="${+r.pas || ""}"></div>
-      <div><label class="f">Km marche</label><input id="capKm" type="number" step="0.01" inputmode="decimal" value="${+r.km_marche || ""}"></div></div>
+      <div><label class="f">Pas</label><input id="capPas" type="number" inputmode="numeric" value="${Math.round(num(r.pas)) || ""}"></div>
+      <div><label class="f">Km marche</label><input id="capKm" type="number" step="0.01" inputmode="decimal" value="${num(r.km_marche) || ""}"></div></div>
       <p class="pos-status" style="text-align:left">Ces chiffres remplaceront l'estimation de marche de ce jour.</p>`;
   } else {
     $("capTitle").textContent = "🗺️ Trajets Google Maps";
@@ -2692,7 +2699,7 @@ function openCapSheet() {
     $("capBody").innerHTML = (r.trajets || []).map((t, i) => `
       <div class="card" style="padding:12px;margin:10px 0">
         <div class="row2" style="gap:8px"><select data-cap="${i}" data-k="mode">${opts(MODES[t.mode] ? t.mode : "voiture")}</select>
-          <input data-cap="${i}" data-k="km" type="number" step="0.1" inputmode="decimal" value="${+t.km || 0}" aria-label="km"></div>
+          <input data-cap="${i}" data-k="km" type="number" step="0.1" inputmode="decimal" value="${num(t.km)}" aria-label="km"></div>
         <div class="pos-status" style="text-align:left">${esc(t.depart || "?")} ${t.heure_depart ? "(" + esc(t.heure_depart) + ")" : ""} → ${esc(t.arrivee || "?")} ${t.heure_arrivee ? "(" + esc(t.heure_arrivee) + ")" : ""}</div>
       </div>`).join("") + `<p class="pos-status" style="text-align:left">Vérifie le mode : Google indique parfois « voiture » pour un train. Les km en transport de ce jour seront ceux-ci.</p>
       <label class="row" style="gap:8px;margin-top:6px"><input type="checkbox" id="capPts" checked style="width:auto"> Ajouter les lieux de départ et d'arrivée au tracé de la carte</label>`;
@@ -2703,7 +2710,8 @@ $("capSave").onclick = async () => {
   const e = active(); if (!e || !capData) return;
   const day = $("capDay").value || dayKey(Date.now());
   if (capData.type === "sante") {
-    const pas = parseInt($("capPas").value) || 0, kmv = parseFloat(String($("capKm").value).replace(",", ".")) || 0;
+    const pas = Math.round(num($("capPas").value)), kmv = num($("capKm").value);
+    if (!pas && !kmv) return toast("Aucun chiffre lu : tape les pas ou les km avant d'enregistrer");
     e.health = e.health || {}; e.health[day] = { pas, km: kmv };
     save(); closeSheet("sheetCap"); renderAll(); return toast("🩺 Activité du " + dayLabel(day) + " enregistrée ✓");
   }
@@ -2733,7 +2741,7 @@ $("capSave").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v35";
+const VERSION = "v36";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
