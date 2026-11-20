@@ -1837,11 +1837,16 @@ function openViewer(id) {
     ${(m.extra || []).length ? `<div class="gallery">${m.extra.map(u => safeImg(u) ? `<img src="${u}" alt="">` : "").join("")}</div><div class="pos-status" style="text-align:left">${m.extra.length + 1} photos · glisse pour voir</div>` : ""}
     ${m.note ? `<div class="viewer-note">${esc(m.note)}</div>` : ""}
     <button class="btn" id="vEdit">✏️ Modifier (titre, thèmes…)</button>
+    ${safeImg(m.photo) && !m.video ? `<div class="row2"><button class="btn light" id="vStyle">🎨 Mise en page carnet</button>${hasAi() ? `<button class="btn ai-btn" id="vStyleAi">✨ Version illustrée IA</button>` : ""}</div>` : ""}
+    ${m.orig ? `<button class="link" id="vOrig">↩︎ Revenir à la photo d'origine</button>` : ""}
     ${m.lat != null ? `<button class="btn light" id="vMap">Voir sur la carte</button>` : ""}
     <button class="link danger" id="vDel">Supprimer ce moment</button>
     <button class="link" data-close style="float:right">Fermer</button>`;
   openSheet("sheetView");
   $("vEdit").onclick = () => { closeSheet("sheetView"); openMomentSheet(id); };
+  if ($("vStyle")) $("vStyle").onclick = async () => { const b = $("vStyle"); b.disabled = true; b.textContent = "Mise en page…"; try { await styleCarnet(m); openViewer(id); toast("Page de carnet créée ✓"); } catch (er) { toast("Mise en page impossible"); b.disabled = false; } };
+  if ($("vStyleAi")) $("vStyleAi").onclick = function () { confirmTap(this, async () => { const b = $("vStyleAi"); b.disabled = true; b.textContent = "L'IA dessine (30 à 60 s)…"; try { await styleIa(m); openViewer(id); toast("Version illustrée créée ✓"); } catch (er) { toast(er.message || "Illustration impossible"); b.disabled = false; b.textContent = "✨ Version illustrée IA"; } }); };
+  if ($("vOrig")) $("vOrig").onclick = () => { m.photo = m.orig; delete m.orig; delete m.styled; save(); renderAll(); openViewer(id); toast("Photo d'origine remise"); };
   if ($("vMap")) $("vMap").onclick = () => { closeSheet("sheetView"); show("carte"); setTimeout(() => map.setView([m.lat, m.lng], 17), 120); };
   $("vDel").onclick = function () {
     confirmTap(this, () => { if (m.video) mediaDel(m.video); state.moments = state.moments.filter(x => x.id !== id); save(); closeSheet("sheetView"); renderAll(); });
@@ -3077,8 +3082,128 @@ JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: 
 $("batchDone").onclick = () => { closeSheet("sheetBatch"); carnetOrder = "voyage"; show("carnet"); };
 $("batchRecap").onclick = () => { closeSheet("sheetBatch"); show("carnet"); openRecapSheet("jour"); };
 
+// ================= Pages de carnet : mise en page « scrapbook » =================
+// Pays de la destination → couleurs du drapeau et monument (pour la mise en page gratuite)
+const COUNTRY = [
+  [/milan|milano|rome|roma|venise|venezia|florence|firenze|naples|napoli|turin|torino|gênes|genova|italie|italy|vintimille|ventimiglia|sanremo|alassio|savona|côme|como|vérone|verona|bologne|bologna|pise|pisa/i, ["#009246", "#ffffff", "#ce2b37"], { milan: "⛪", milano: "⛪", rome: "🏛️", roma: "🏛️", venise: "🛶", venezia: "🛶", pise: "🗼", pisa: "🗼" }, "🍕"],
+  [/londres|london|angleterre|england|uk|royaume|manchester|liverpool|édimbourg|edinburgh/i, ["#012169", "#ffffff", "#c8102e"], { londres: "🎡", london: "🎡" }, "💂"],
+  [/dublin|irlande|ireland|cork|galway/i, ["#169b62", "#ffffff", "#ff883e"], {}, "☘️"],
+  [/paris|france|nice|menton|lyon|marseille|bordeaux|monaco/i, ["#002395", "#ffffff", "#ed2939"], { paris: "🗼" }, "🥐"],
+  [/barcelone|barcelona|madrid|séville|sevilla|valence|valencia|espagne|spain/i, ["#aa151b", "#f1bf00", "#aa151b"], { barcelone: "⛪", barcelona: "⛪" }, "💃"]
+];
+function countryOf(e) {
+  const dest = names(e)[1] || "";
+  for (const [re, cols, monuments, deco] of COUNTRY) if (re.test(dest)) {
+    const k = Object.keys(monuments).find(x => dest.toLowerCase().includes(x));
+    return { cols, emoji: k ? monuments[k] : deco };
+  }
+  return { cols: ["#1b2a4a", "#c9a227", "#b3362d"], emoji: "🧭" };
+}
+function wrapLines(g, text, maxW, maxLines) {
+  const words = String(text || "").split(/\s+/), lines = []; let cur = "";
+  for (const w of words) { const t = cur ? cur + " " + w : w; if (g.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+  if (cur) lines.push(cur);
+  if (lines.length > maxLines) { lines.length = maxLines; lines[maxLines - 1] = lines[maxLines - 1].replace(/\s*\S*$/, "") + "…"; }
+  return lines;
+}
+function tape(g, x, y, w, h, rot) { g.save(); g.translate(x, y); g.rotate(rot); g.fillStyle = "rgba(230,206,120,.78)"; g.fillRect(-w / 2, -h / 2, w, h); g.restore(); }
+
+// Mise en page gratuite, faite sur le téléphone
+async function styleCarnet(m) {
+  try { await document.fonts.ready; } catch (e) {}
+  const e = state.escapades.find(x => x.id === m.escId) || active();
+  const src = m.orig || m.photo, im = await loadImg(src);
+  const W = 1000, H = 1250, c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"), co = countryOf(e);
+  // papier
+  g.fillStyle = "#fbf7ef"; g.fillRect(0, 0, W, H);
+  // photo légèrement inclinée avec bord blanc
+  g.save(); g.translate(W / 2, 600); g.rotate(-0.025);
+  const pw = 860, ph = 900;
+  g.shadowColor = "rgba(0,0,0,.25)"; g.shadowBlur = 30; g.fillStyle = "#fff"; g.fillRect(-pw / 2 - 18, -ph / 2 - 18, pw + 36, ph + 36); g.shadowBlur = 0;
+  const r = Math.max(pw / im.width, ph / im.height);
+  g.save(); g.beginPath(); g.rect(-pw / 2, -ph / 2, pw, ph); g.clip(); g.drawImage(im, -im.width * r / 2, -im.height * r / 2, im.width * r, im.height * r); g.restore();
+  g.restore();
+  // drapeau en coin
+  g.save(); g.translate(W - 90, 110); g.rotate(0.45);
+  co.cols.forEach((col, i) => { g.fillStyle = col; g.fillRect(-90 + i * 60, -26, 60, 52); });
+  g.restore();
+  // bandeau titre avec épingle
+  g.save(); g.translate(60, 70); g.rotate(-0.02);
+  g.fillStyle = "#fff"; g.shadowColor = "rgba(0,0,0,.18)"; g.shadowBlur = 14; g.fillRect(0, 0, 720, 96); g.shadowBlur = 0;
+  g.font = "40px serif"; g.fillText("📍", 16, 64);
+  g.fillStyle = "#1b2a4a"; g.font = "700 52px Caveat, cursive"; g.fillText((m.lieu || "Moment").slice(0, 34), 80, 66, 620);
+  g.restore();
+  tape(g, 120, 72, 130, 34, -0.3);
+  // note manuscrite sur un papier scotché
+  if (m.note) {
+    g.save(); g.translate(70, 960); g.rotate(-0.04);
+    g.font = "600 40px Caveat, cursive";
+    const lines = wrapLines(g, m.note, 520, 3), bh = 30 + lines.length * 46;
+    g.fillStyle = "#fff8d6"; g.shadowColor = "rgba(0,0,0,.2)"; g.shadowBlur = 12; g.fillRect(0, 0, 570, bh); g.shadowBlur = 0;
+    g.fillStyle = "#2a2420"; lines.forEach((l, i) => g.fillText(l, 22, 46 + i * 46));
+    g.restore(); tape(g, 330, 960, 120, 30, 0.12);
+  }
+  // étiquette ville + monument
+  g.save(); g.translate(W - 290, H - 190); g.rotate(-0.06);
+  g.fillStyle = "#fff"; g.shadowColor = "rgba(0,0,0,.2)"; g.shadowBlur = 12; g.fillRect(0, 0, 240, 120); g.shadowBlur = 0;
+  g.font = "56px serif"; g.fillText(co.emoji, 18, 78);
+  g.fillStyle = "#b3362d"; g.font = "700 44px Caveat, cursive"; g.fillText((names(e)[1] || "").slice(0, 10), 90, 78, 140);
+  g.restore();
+  // tampon date + lieu
+  g.save(); g.translate(150, H - 110); g.rotate(-0.18);
+  g.strokeStyle = "#1f4e8c"; g.lineWidth = 5; g.beginPath(); g.arc(0, 0, 78, 0, 7); g.stroke();
+  g.setLineDash([6, 6]); g.beginPath(); g.arc(0, 0, 64, 0, 7); g.stroke(); g.setLineDash([]);
+  g.fillStyle = "#1f4e8c"; g.textAlign = "center"; g.font = "700 26px 'Space Mono', monospace";
+  g.fillText(new Date(m.ts).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), 0, -6);
+  g.font = "22px 'Space Mono', monospace"; g.fillText(new Date(m.ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), 0, 24);
+  g.restore(); g.textAlign = "left";
+  // lieu en petit
+  if (m.place) { g.fillStyle = "#8a7f72"; g.font = "26px 'Space Mono', monospace"; g.fillText(m.place.split(",").slice(0, 2).join(",").slice(0, 40), 260, H - 40); }
+  if (!m.orig) m.orig = m.photo;
+  m.photo = c.toDataURL("image/jpeg", 0.82); m.styled = "carnet";
+  save(); renderAll();
+}
+
+// Version illustrée par l'IA d'images (OpenAI) : annotations drôles et stickers à partir de la note et du lieu
+async function styleIa(m) {
+  if (!hasAi()) throw new Error("Ajoute ta clé IA dans Passeport");
+  const e = state.escapades.find(x => x.id === m.escId) || active();
+  const src = m.orig || m.photo;
+  const blob = await (await fetch(src)).blob();
+  const prompt = `Transforme cette photo en page de carnet de voyage façon scrapbook, comme un souvenir Instagram fun.
+Garde la photo et les visages intacts et reconnaissables, au centre.
+Ajoute : en haut un bandeau papier avec une épingle rouge et le titre manuscrit « ${m.lieu || "Souvenir"} » ;
+des annotations manuscrites courtes et humoristiques en français avec des flèches, inspirées de cette note : « ${m.note || "aucune note"} » ;
+des petits stickers dessinés à la main liés au lieu (${m.place || names(e)[1]}) et à la destination ${names(e)[1]} (monument emblématique, drapeau) ;
+du scotch washi, une étiquette « ${names(e)[1]} » et la date ${new Date(m.ts).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}.
+Style propre, coloré, lisible, format portrait. N'invente pas de noms de personnes.`;
+  let lastErr = null;
+  for (const model of ["gpt-image-1-mini", "gpt-image-1.5", "gpt-image-1"]) {
+    try {
+      const fd = new FormData();
+      fd.append("model", model); fd.append("prompt", prompt); fd.append("size", "1024x1536"); fd.append("quality", "medium");
+      fd.append("image", new File([blob], "photo.jpg", { type: blob.type || "image/jpeg" }));
+      const r = await fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { Authorization: "Bearer " + aiCfg.key }, body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        lastErr = new Error(r.status === 401 ? "Clé refusée : vérifie-la" : r.status === 429 ? "Plus de crédit ou trop de demandes chez OpenAI" : ((j.error && j.error.message) || ("Erreur " + r.status)));
+        if (r.status === 401 || r.status === 429 || r.status === 403) { lastErr.fatal = true; throw lastErr; }
+        continue;
+      }
+      const b64 = j.data && j.data[0] && j.data[0].b64_json;
+      if (!b64) { lastErr = new Error("Pas d'image reçue"); continue; }
+      const out = await resizePhoto(dataUrlToFile("data:image/png;base64," + b64, "ia.png"), 1100, 0.82);
+      if (!m.orig) m.orig = m.photo;
+      m.photo = out; m.styled = "ia"; save(); renderAll();
+      return;
+    } catch (er) { lastErr = er; if (er.fatal) break; }
+  }
+  throw lastErr || new Error("Illustration impossible");
+}
+
 // ================= Version + imports par lien =================
-const VERSION = "v44";
+const VERSION = "v45";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
