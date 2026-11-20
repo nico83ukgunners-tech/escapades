@@ -3275,7 +3275,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v48";
+const VERSION = "v49";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
@@ -3318,11 +3318,18 @@ async function checkUpdate() {
     const r = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" });
     const m = (await r.text()).match(/const VERSION = "(v\d+)"/);
     if (m && m[1] !== VERSION) {
+      // Pas de rechargement pendant une saisie, une fiche ouverte ou une illustration IA : on réessaie plus tard
+      if (document.querySelector(".sheet.open") || Object.keys(iaBusy).length || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) { setTimeout(checkUpdate, 30000); return; }
+      try { const t = document.querySelector("nav [data-tab].on, [data-tab].on"); sessionStorage.setItem("esc-resume", JSON.stringify({ tab: t ? t.dataset.tab : "carte", y: scrollY })); } catch (e) {}
       toast("Mise à jour " + m[1] + "…");
       setTimeout(() => location.replace(location.pathname + "?v=" + m[1].slice(1)), 800);
     }
   } catch (e) {}
 }
+try {
+  const rs = JSON.parse(sessionStorage.getItem("esc-resume") || "null");
+  if (rs) { sessionStorage.removeItem("esc-resume"); const b = document.querySelector(`[data-tab="${rs.tab}"]`); if (b && rs.tab !== "carte") b.click(); setTimeout(() => scrollTo(0, rs.y || 0), 300); }
+} catch (e) {}
 checkUpdate();
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkUpdate(); });
 const _renderAll = renderAll;
