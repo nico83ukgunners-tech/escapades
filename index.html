@@ -266,7 +266,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 <body>
 
 <div class="cover">
-  <small>RÉPUBLIQUE DES ESCAPADES</small>
+  <small>RÉPUBLIQUE DES ESCAPADES · <span id="ver"></span></small>
   <h1>Escapades</h1>
   <div class="emblem">🧭</div>
 </div>
@@ -1312,6 +1312,37 @@ load();
 initMap();
 renderAll(true);
 aiUI();
+
+// ================= Version + imports par lien =================
+const VERSION = "v9";
+$("ver").textContent = VERSION;
+const PRESETS = {
+  "milan-tricount": [
+    ["train-ar", 134.00, "Train A/R Ventimiglia-Milan", "transport", "2026-10-29", 1, "both"],
+    ["rembt", 172.00, "Remboursement hôtel + train", "remboursement", "2026-11-10", 0, 1],
+    ["hotel", 210.00, "Hôtel Milan", "logement", "2026-11-11", 1, "both"],
+    ["taxes", 35.00, "Taxes hôtel sur place", "logement", "2026-11-20", 1, "both"],
+    ["ter", 10.40, "TER Menton-Vintimille", "transport", "2026-11-20", 1, "both"]
+  ]
+};
+function runPreset() {
+  const key = location.hash.slice(1);
+  if (!PRESETS[key]) return;
+  history.replaceState(null, "", location.pathname);
+  const e = active();
+  if (!e) { toast("Crée d'abord l'escapade, puis rouvre le lien"); return; }
+  let added = 0;
+  PRESETS[key].forEach(([id, montant, desc, cat, date, payePar, pour]) => {
+    const full = "milan-" + id, ex = state.depenses.find(d => d.id === full);
+    if (ex) { ex.escId = e.id; return; }
+    state.depenses.push({ id: full, escId: e.id, montant, devise: "EUR", taux: 1, payePar, pour, cat, desc, date, ts: Date.now() + added });
+    added++;
+  });
+  save(); renderAll(); show("depenses");
+  toast(added ? `${added} dépenses ajoutées ✓` : "Dépenses déjà présentes, rattachées à cette escapade ✓");
+}
+runPreset();
+window.addEventListener("hashchange", runPreset);
 </script>
 </body>
 </html>
