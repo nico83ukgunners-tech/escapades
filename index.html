@@ -2802,11 +2802,11 @@ function openRecapSheet(mode) {
   else { if (recapDay !== "all" && !days.includes(recapDay)) recapDay = lastDay; opts = [...days.map(k => [k, "📅 " + dayLabel(k)]), ["all", "🧳 Tout le séjour"]]; }
   $("recapTitle").textContent = mode === "jour" ? "Récap du jour" : mode === "sejour" ? "Récap du séjour" : "Carte postale story";
   $("recapDaysLbl").hidden = $("recapDays").hidden = !opts;
-  if (opts) segButtons("recapDays", opts, recapDay, v => { recapDay = v; mode === "carte" ? ($("recapOut").innerHTML = "") : showSavedRecap(); });
+  if (opts) segButtons("recapDays", opts, recapDay, v => { recapDay = v; mode === "carte" ? pcPicker() : showSavedRecap(); });
   $("recapGen").hidden = mode === "carte" || !hasAi();
   $("recapCard").hidden = mode !== "carte";
   $("recapCard").className = "btn red";
-  if (mode === "carte") $("recapOut").innerHTML = `<p class="pos-status" style="text-align:left">Choisis la journée ou tout le séjour, puis crée la carte postale.</p>`;
+  if (mode === "carte") pcPicker();
   else showSavedRecap();
   openSheet("sheetRecap");
   // Écrit automatiquement le récap s'il n'existe pas encore
@@ -2815,6 +2815,25 @@ function openRecapSheet(mode) {
 $("rcDay").onclick = () => openRecapSheet("jour");
 $("rcTrip").onclick = () => openRecapSheet("sejour");
 $("rcCard").onclick = () => openRecapSheet("carte");
+// Choix des 3 photos de la carte postale (sinon choix automatique : coups de cœur et 🎬)
+const pcSel = [];
+function pcAuto(ms) { return ms.filter(m => safeImg(m.photo)).sort((a, b) => ((b.rating || 0) + (tagsOf(b).includes("reel") ? 2 : 0)) - ((a.rating || 0) + (tagsOf(a).includes("reel") ? 2 : 0))).slice(0, 3); }
+function pcPhotos(ms) { const sel = pcSel.map(id => ms.find(m => m.id === id)).filter(m => m && safeImg(m.photo)); return (sel.length ? sel : pcAuto(ms)).sort((a, b) => a.ts - b.ts); }
+function pcPicker() {
+  const e = active(), ms = e ? recapMoments(e).filter(m => safeImg(m.photo)) : [];
+  const chosen = pcPhotos(ms).map(m => m.id), manual = pcSel.some(id => ms.find(m => m.id === id));
+  $("recapOut").innerHTML = `<div class="pos-status" style="text-align:left;display:flex;justify-content:space-between;align-items:center"><span>${manual ? `📸 ${chosen.length}/3 photos choisies` : "📸 Choix auto (touche pour choisir toi-même, 3 max)"}</span>${manual ? `<button class="link" id="pcReset">Auto</button>` : ""}</div>
+  <div class="rc-pick">${ms.map(m => `<button class="${chosen.includes(m.id) ? "" : "off"}" data-pc="${m.id}"><img src="${m.photo}" alt=""><i>${chosen.includes(m.id) ? chosen.indexOf(m.id) + 1 : "✓"}</i></button>`).join("")}</div>
+  ${ms.length ? "" : `<p class="pos-status">Pas de photo sur cette période.</p>`}`;
+  $("recapOut").querySelectorAll("[data-pc]").forEach(b => b.onclick = () => {
+    const id = b.dataset.pc;
+    if (!pcSel.some(x => ms.find(m => m.id === x))) pcSel.length = 0;
+    const i = pcSel.indexOf(id);
+    if (i >= 0) pcSel.splice(i, 1); else { if (pcSel.length >= 3) return toast("3 photos maximum : retire-en une d'abord"); pcSel.push(id); }
+    pcPicker();
+  });
+  if ($("pcReset")) $("pcReset").onclick = () => { pcSel.length = 0; pcPicker(); };
+}
 function showSavedRecap() {
   const e = active(), r = e && e.recaps && e.recaps[recapDay];
   $("recapOut").innerHTML = (r ? recapHtml(r) : `<p class="pos-status" style="text-align:left">${hasAi() ? "Appuie sur ✨ pour écrire le récap de cette période (les plans et textes rendront le montage plus précis)." : "La carte postale marche sans IA. Pour les textes, ajoute ta clé dans Passeport."}</p>`) + sendHtml();
@@ -3001,10 +3020,10 @@ $("recapCard").onclick = async () => {
       if (okTiles) { g.fillStyle = "rgba(255,255,255,.8)"; g.fillRect(box.x + box.w - 250, box.y + box.h - 30, 250, 30); g.fillStyle = "#555"; g.font = "18px sans-serif"; g.fillText("© OpenStreetMap", box.x + box.w - 240, box.y + box.h - 9); }
     } else { g.fillStyle = "#8a7f72"; g.font = "36px 'Space Mono', monospace"; g.textAlign = "center"; g.fillText("✈︎", W / 2, box.y + box.h / 2); g.textAlign = "left"; }
     // 3 photos polaroid (coups de cœur et 🎬 d'abord)
-    const pick3 = ms.filter(m => safeImg(m.photo)).sort((a, b) => ((b.rating || 0) + (tagsOf(b).includes("reel") ? 2 : 0)) - ((a.rating || 0) + (tagsOf(a).includes("reel") ? 2 : 0))).slice(0, 3).sort((a, b) => a.ts - b.ts);
+    const pick3 = pcPhotos(ms);
     const pos = [[230, 1420, -0.09], [540, 1390, 0.05], [850, 1430, -0.04]];
     for (let i = 0; i < pick3.length; i++) {
-      const im = await loadImg(pick3[i].photo), [cx, cy, rot] = pick3[i] && pick3.length === 1 ? [540, 1410, -0.04] : pos[i], s = 280;
+      const im = await loadImg(pick3[i].photo), [cx, cy, rot] = pick3.length === 1 ? [540, 1410, -0.04] : pick3.length === 2 ? [[370, 1410, -0.07], [710, 1425, 0.05]][i] : pos[i], s = 280;
       g.save(); g.translate(cx, cy); g.rotate(rot);
       g.shadowColor = "rgba(0,0,0,.28)"; g.shadowBlur = 30; g.fillStyle = "#fff"; g.fillRect(-s / 2 - 16, -s / 2 - 16, s + 32, s + 90); g.shadowBlur = 0;
       const r = Math.max(s / im.width, s / im.height), w = im.width * r, h = im.height * r;
@@ -3507,7 +3526,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v58";
+const VERSION = "v59";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
