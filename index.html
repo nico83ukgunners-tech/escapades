@@ -343,6 +343,12 @@ details.fold .fold-body{padding:0 12px 14px}
 .insta-menu .btn{margin-top:10px}
 .cover small{cursor:pointer}
 
+.quick{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:6px}
+.quick button{border:0;border-radius:18px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.07);padding:16px 6px 12px;font:600 13px var(--sans);color:var(--ink);line-height:1.2}
+.quick button span{display:block;font-size:32px;margin-bottom:6px}
+.quick button.main{background:var(--red);color:#fff}
+.quick button.main2{background:var(--navy);color:#fff}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -751,6 +757,23 @@ details.fold .fold-body{padding:0 12px 14px}
     </div>
     <button class="btn red" id="btnReel">🎬 Mode montage Reel (photos dans l'ordre)</button>
     <button class="btn" id="btnMontage">📤 Envoyer à Claude pour le montage</button>
+  </div>
+</div>
+
+<!-- ============ FEUILLE : MENU RAPIDE (+) ============ -->
+<div class="sheet" id="sheetQuick">
+  <div class="panel">
+    <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
+    <div class="sub" id="quickSub">AJOUT RAPIDE</div>
+    <h3>Qu'est-ce qu'on garde ?</h3>
+    <div class="quick">
+      <button class="main" id="qPhoto"><span>📸</span>Photo / vidéo</button>
+      <button class="main2" id="qHere"><span>📍</span>Je suis ici</button>
+      <button id="qDep"><span>💶</span>Dépense</button>
+      <button id="qNote"><span>📝</span>Moment sans photo</button>
+      <button id="qSpot"><span>⭐</span>Spot à essayer</button>
+      <button id="qPas"><span>🩺</span>Pas du jour</button>
+    </div>
   </div>
 </div>
 
@@ -1609,7 +1632,18 @@ function openMomentSheet(editId) {
   if (pick) { setPos(pickMarker ? "📌 Point choisi sur la carte" : "📍 Position GPS"); fillPlace(); }
   else locate(() => fillPlace(), true);
 }
-$("fab").onclick = () => currentTab === "depenses" ? openDepSheet() : openMomentSheet();
+// Bouton + : menu rapide, tout en 2 appuis depuis n'importe quel écran
+$("fab").onclick = () => {
+  const e = active(); if (!e) return openEscSheet();
+  $("quickSub").textContent = "AJOUT RAPIDE · " + names(e)[1].toUpperCase();
+  openSheet("sheetQuick");
+};
+$("qPhoto").onclick = () => { closeSheet("sheetQuick"); openMomentSheet(); $("momPhoto").click(); };   // ouvre directement appareil photo / photothèque
+$("qNote").onclick = () => { closeSheet("sheetQuick"); openMomentSheet(); setTimeout(() => $("momNote").focus(), 300); };
+$("qHere").onclick = () => { closeSheet("sheetQuick"); show("carte"); $("btnHere").click(); };
+$("qDep").onclick = () => { closeSheet("sheetQuick"); openDepSheet(); };
+$("qSpot").onclick = () => { closeSheet("sheetQuick"); show("spots"); if (!pick) locate(null, true); setTimeout(() => $("spotNom").focus(), 250); };
+$("qPas").onclick = () => { closeSheet("sheetQuick"); openSante(); };
 $("momAi").onclick = () => aiTitle(false);
 // Miniature d'une vidéo (première image)
 function videoThumb(file) {
@@ -1942,15 +1976,17 @@ function segButtons(boxId, options, value, onPick) {
 }
 function openDepSheet() {
   const e = active(); if (!e) return openEscSheet();
-  dep = { payePar: 0, pour: "both", cat: "resto", photo: null };
+  const h = new Date().getHours() + new Date().getMinutes() / 60;
+  const guess = h < 11 ? "bar" : h < 15 ? "resto" : h < 18.5 ? "bar" : h < 23 ? "resto" : "bar";   // café le matin, resto midi/soir, apéro en fin d'après-midi
+  dep = { payePar: state.lastPayer ?? 0, pour: state.lastPour ?? "both", cat: guess, photo: null };
   $("depMontant").value = ""; $("depDesc").value = ""; $("depDate").value = today(); $("depPhoto").value = "";
   $("depDevise").value = /london|londres|uk|angleterre|dublin|irlande/i.test(names(e)[1]) && !/dublin|irlande/i.test(names(e)[1]) ? "GBP" : "EUR";
   $("depPick").querySelectorAll("img").forEach(i => i.remove());
   $("depPick").querySelectorAll("span").forEach(s => s.hidden = false);
   $("depOcr").hidden = true; $("depAi").hidden = true;
   segButtons("depCats", Object.entries(CATS).map(([k, [ic, l]]) => [k, `${ic} ${l}`]), dep.cat, v => dep.cat = v);
-  segButtons("depPayeur", [[0, state.people[0]], [1, state.people[1]]], 0, v => dep.payePar = v);
-  segButtons("depPour", [["both", "Les deux"], [0, state.people[0]], [1, state.people[1]]], "both", v => dep.pour = v);
+  segButtons("depPayeur", [[0, state.people[0]], [1, state.people[1]]], dep.payePar, v => dep.payePar = v);
+  segButtons("depPour", [["both", "Les deux"], [0, state.people[0]], [1, state.people[1]]], dep.pour, v => dep.pour = v);
   openSheet("sheetDep");
   setTimeout(() => $("depMontant").focus(), 250);
 }
@@ -1986,6 +2022,7 @@ $("depSave").onclick = () => {
   const montant = parseFloat(String($("depMontant").value).replace(",", "."));
   if (!(montant > 0)) return toast("Indique un montant");
   const devise = $("depDevise").value;
+  state.lastPayer = dep.payePar; state.lastPour = dep.pour;
   state.depenses.push({ id: uid(), escId: e.id, montant: Math.round(montant * 100) / 100, devise, taux: devise === "GBP" ? state.rateGBP : 1,
     payePar: dep.payePar, pour: dep.pour, cat: dep.cat, desc: $("depDesc").value.trim(), photo: dep.photo,
     date: $("depDate").value || today(), ts: Date.now() });
@@ -2781,7 +2818,7 @@ function renderKmSum() { const st = moveStats(active()); $("kmSum").textContent 
 $("ecoTrace").onchange = () => { state.ecoTrace = $("ecoTrace").checked; save(); toast(state.ecoTrace ? "🔋 Tracé économe activé" : "Tracé précis activé"); };
 
 // ================= Version + imports par lien =================
-const VERSION = "v38";
+const VERSION = "v39";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
