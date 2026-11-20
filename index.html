@@ -1273,6 +1273,10 @@ $("btnImport").onclick = () => {
     state.escapades = merge(state.escapades, inc.escapades);
     state.moments = merge(state.moments, inc.moments);
     state.spots = merge(state.spots, inc.spots);
+    if ((inc.depenses || []).some(d => d && d.escId === "__ACTIVE__")) {
+      if (!active()) return toast("Sélectionne d'abord l'escapade dans Passeport");
+      inc.depenses.forEach(d => { if (d && d.escId === "__ACTIVE__") d.escId = state.activeId; });
+    }
     state.depenses = merge(state.depenses, inc.depenses);
     if (!active()) state.activeId = (state.escapades[state.escapades.length - 1] || {}).id || null;
     save(); renderAll(true); $("shareText").value = ""; toast("Fusion réussie ✓");
