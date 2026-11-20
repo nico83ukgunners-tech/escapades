@@ -21,7 +21,9 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 [hidden]{display:none!important}
-html,body{margin:0}
+html,body{margin:0;overflow-x:clip}
+.cap,.jrow b,.exp b,.spot b{overflow-wrap:anywhere}
+.jrow>div,.exp>div{min-width:0}
 body{
   font-family:var(--sans);color:var(--ink);
   background:var(--paper);
@@ -113,8 +115,8 @@ h2 small{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.2e
 .filters{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px}
 .chip{flex:0 0 auto;border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;font:500 14px var(--sans);color:var(--ink)}
 .chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
-.polas{display:grid;grid-template-columns:1fr 1fr;gap:18px 14px;padding:10px 4px}
-.pola{background:#fff;padding:8px 8px 10px;box-shadow:0 6px 16px rgba(0,0,0,.12);transform:rotate(var(--r));border:0;text-align:left;font:inherit;color:inherit;position:relative}
+.polas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 14px;padding:10px 4px}
+.pola{min-width:0;background:#fff;padding:8px 8px 10px;box-shadow:0 6px 16px rgba(0,0,0,.12);transform:rotate(var(--r));border:0;text-align:left;font:inherit;color:inherit;position:relative}
 .pola .ph{aspect-ratio:1;background:#efe6d6;display:flex;align-items:center;justify-content:center;font-size:34px;overflow:hidden}
 .pola .ph img{width:100%;height:100%;object-fit:cover;display:block}
 .pola .cap{font-family:var(--hand);font-size:21px;line-height:1.05;margin-top:6px;min-height:22px;word-break:break-word}
@@ -2731,7 +2733,7 @@ $("capSave").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v34";
+const VERSION = "v35";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
