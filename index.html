@@ -356,6 +356,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .rc-strip{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;white-space:normal;-webkit-overflow-scrolling:touch}
 .rc-strip img{width:64px;height:64px;object-fit:cover;border-radius:8px;flex:0 0 auto;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .rc-list{white-space:normal}
+.rc-ed{outline:none;border-radius:6px;-webkit-user-select:text;user-select:text;cursor:text}
+.rc-ed:focus{background:#fff7dc;box-shadow:0 0 0 2px #f1d98a}
 .song-row{display:flex;gap:6px;margin:4px 0 6px}.song-row input{flex:1;min-width:0}.song-row .btn{width:auto;padding:0 14px;margin:0}
 .song-it{display:flex;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:6px;margin:6px 0;white-space:normal;border:2px solid transparent}
 .song-it.on{border-color:#6b4bd8}
@@ -2920,15 +2922,15 @@ function rcList(arr, kind, ms) {
   rcCount = arr.length;
   return `<div class="rc-list">${arr.map((x, i) => {
     const m = rcMoment(x, i, ms, kind), img = m && safeImg(m.photo);
-    return `<div class="rc-row">${img ? `<img src="${img}" alt="" data-rcm="${m.id}">` : `<span class="rc-ph">${m && m.video ? "🎬" : "📷"}</span>`}<div class="rc-t">${kind === "plans" ? `<span class="rc-n">PLAN ${i + 1}${m ? " · " + esc(m.lieu || "") : ""}</span>` : ""}${esc(rcText(x).replace(/^\s*\d+\s*[—\-]\s*/, kind === "plans" ? "" : "$&"))}</div></div>`;
+    return `<div class="rc-row">${img ? `<img src="${img}" alt="" data-rcm="${m.id}">` : `<span class="rc-ph">${m && m.video ? "🎬" : "📷"}</span>`}<div class="rc-t">${kind === "plans" ? `<span class="rc-n">PLAN ${i + 1}${m ? " · " + esc(m.lieu || "") : ""}</span>` : ""}${typeof x === "object" && x.d ? `<b>${esc(x.d)} — </b>` : ""}<span class="rc-ed" contenteditable="true" data-ed="${kind}" data-i="${i}">${esc(typeof x === "object" ? (x.t || "") : String(x).replace(/^\s*\d+\s*[—\-]\s*/, kind === "plans" ? "" : "$&"))}</span></div></div>`;
   }).join("")}</div>`;
 }
 function recapHtml(r) {
   const e = active(), ms = e ? recapMoments(e) : [];
-  const block = (t, v, k) => v ? `<h4>${t}</h4><div>${esc(v)}</div><button class="link" data-copy="${k}">Copier</button>` : "";
+  const block = (t, v, k) => v ? `<h4>${t}</h4><div class="rc-ed" contenteditable="true" data-ed="${k}">${esc(v)}</div><button class="link" data-copy="${k}">Copier</button>` : "";
   const strip = ms.filter(m => safeImg(m.photo));
   const lst = (t, arr, k) => arr && arr.length ? `<h4>${t}</h4>${rcList(arr, k, ms)}<button class="link" data-copy="${k}">Copier les textes</button>${k === "plans" && strip.length ? ` · <button class="link" id="rcShare">📤 Envoyer les photos dans l'ordre</button>` : ""}` : "";
-  return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
+  return `<p class="pos-status" style="text-align:left;margin:10px 0 0">✏️ Touche un texte pour le modifier : il est enregistré automatiquement.</p><div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
 }
 const rcOff = new Set();
 // ---------- Musique : recherche comme sur Instagram (catalogue Deezer, extraits 30 s, tempo) ----------
@@ -3055,6 +3057,20 @@ function sendHtml() {
   <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude.</p>`;
 }
 function bindRecapCopy(r) {
+  // Textes modifiables : enregistrés dans le récap à la sortie du champ
+  $("recapOut").querySelectorAll("[data-ed]").forEach(el => el.onblur = () => {
+    const e = active(), rr = e && e.recaps && e.recaps[recapDay]; if (!rr) return;
+    const k = el.dataset.ed, v = el.innerText.replace(/\u00a0/g, " ").trim();
+    if (el.dataset.i != null) {
+      const i = +el.dataset.i, arr = rr[k] || [], x = arr[i], ms = recapMoments(e);
+      if (typeof x === "object" && x) x.t = v;
+      else { const m = rcMoment(x, i, ms, k); arr[i] = m ? { m: ms.indexOf(m) + 1, t: v } : v; }
+      if (!v) arr.splice(i, 1);
+      rr[k] = arr;
+    } else rr[k] = k === "hashtags" ? v.split(/\s+/).filter(Boolean).map(h => h.startsWith("#") ? h : "#" + h) : v;
+    save(); toast("Texte enregistré ✓");
+    if (!v && el.dataset.i != null) showSavedRecap();
+  });
   if ($("songAi")) $("songAi").onclick = songSuggest;
   if ($("songGo")) {
     $("songGo").onclick = () => songSearch($("rcSong").value);
@@ -3709,7 +3725,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v64";
+const VERSION = "v65";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
