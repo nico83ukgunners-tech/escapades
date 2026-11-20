@@ -396,9 +396,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div class="movestats" id="moveStats"></div>
     <div class="row2">
       <button class="btn light" id="btnSante">🩺 Pas du jour</button>
-      <label class="btn ai-btn" data-ai-only hidden style="text-align:center">📸 Lire une capture<input id="capFile" type="file" accept="image/*" hidden></label>
+      <label class="btn ai-btn" style="text-align:center">📸 Lire une capture<input id="capFile" type="file" accept="image/*" hidden></label>
     </div>
-    <div class="pos-status" data-ai-only hidden>Capture de l'app Santé (pas, km) ou de Google Maps « Vos trajets »</div>
+    <div class="pos-status" id="capHint"></div>
     <button class="btn red" id="btnReplay">🎬 Rejouer le voyage</button>
     <div class="pos-status">Tape sur la carte pour choisir un point</div>
 
@@ -677,14 +677,15 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
     <div class="sub">APP SANTÉ</div>
     <h3>Pas du jour</h3>
-    <button class="btn ai-btn" id="santePaste">📋 Coller depuis le Raccourci</button>
+    <label class="btn ai-btn" style="text-align:center">📸 Lire la capture de l'app Santé<input id="santeCap" type="file" accept="image/*" hidden></label>
+    <div class="pos-status">ou tape les chiffres ci-dessous</div>
     <label class="f">Jour</label>
     <input id="santeDay" type="date">
     <div class="row2" style="gap:10px">
       <div><label class="f">Pas</label><input id="santePas" type="number" inputmode="numeric" placeholder="12 500"></div>
       <div><label class="f">Km marche (facultatif)</label><input id="santeKm" type="number" step="0.1" inputmode="decimal" placeholder="8,4"></div>
     </div>
-    <p class="pos-status" style="text-align:left">Dans l'app Santé : Parcourir → Activité → <b>Pas</b> et <b>Distance (marche et course)</b>. Si tu mets les km, ils sont utilisés tels quels ; sinon ≈ 1 350 pas = 1 km.</p>
+    <p class="pos-status" style="text-align:left">Dans l'app Santé (Résumé) : <b>Pas</b> et <b>Distance</b>. Si tu mets les km, ils sont utilisés tels quels ; sinon ≈ 1 350 pas = 1 km.</p>
     <button class="btn red" id="santeSave">Enregistrer</button>
     <button class="link danger" id="santeDel" hidden>Effacer ce jour</button>
   </div>
@@ -920,10 +921,38 @@ function segMode(a, b) {
   if (!(h > 0)) return d > 1.5 ? "transport" : "pied";
   return d / h > WALK_MAX_KMH ? "transport" : "pied";
 }
+// Chemin à pied par les rues (itinéraire piéton OpenStreetMap, gratuit, sans clé) entre deux points espacés
+const segKm = (a, b) => (b.route && segMode(a, b) === "pied" && b.routeKm) ? b.routeKm : km(a, b);
+let routeBusy = false;
+async function routeWalks() {
+  if (routeBusy || !navigator.onLine) return;
+  routeBusy = true;
+  try {
+    for (const e of state.escapades) {
+      const tr = e.track || [];
+      for (let i = 1; i < tr.length; i++) {
+        const a = tr[i - 1], b = tr[i], d = km(a, b);
+        if (b.route !== undefined || segMode(a, b) !== "pied" || d < 0.15 || d > 8 || (a.s && a.s === b.s)) continue;
+        try {
+          const j = await (await fetch(`https://routing.openstreetmap.de/routed-foot/route/v1/foot/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`)).json();
+          const rt = j.routes && j.routes[0];
+          if (rt && rt.distance / 1000 < d * 3) {
+            const c = rt.geometry.coordinates, step = Math.max(1, Math.ceil(c.length / 150));
+            b.route = c.filter((_, k) => k % step === 0 || k === c.length - 1).map(([x, y]) => [Math.round(y * 1e5) / 1e5, Math.round(x * 1e5) / 1e5]);
+            b.routeKm = Math.round(rt.distance) / 1000;
+          } else b.route = null;
+          save(); drawMap();
+        } catch (er) { return; }
+        await new Promise(r => setTimeout(r, 1100));
+      }
+    }
+  } finally { routeBusy = false; }
+}
+
 function moveStats(e) {
   const tr = (e && e.track) || [], r = { pied: 0, transport: 0, byDay: {}, sante: 0 };
   for (let i = 1; i < tr.length; i++) {
-    const a = tr[i - 1], b = tr[i], m = segMode(a, b), d = km(a, b), k = dayKey(b.t);
+    const a = tr[i - 1], b = tr[i], m = segMode(a, b), d = segKm(a, b), k = dayKey(b.t);
     (r.byDay[k] = r.byDay[k] || { pied: 0, transport: 0 })[m] += d;
   }
   // Trajets lus sur Google Maps : remplacent les km du jour (transport, et marche si pas de données Santé)
@@ -978,7 +1007,7 @@ function drawMap(fit) {
   const kmByDay = {};
   const ms = moveStats(e);
   for (let i = 1; i < tr.length; i++) {
-    const a = tr[i - 1], b = tr[i], col = dayColor(e, b.t), mode = segMode(a, b), seg = [[a.lat, a.lng], [b.lat, b.lng]];
+    const a = tr[i - 1], b = tr[i], col = dayColor(e, b.t), mode = segMode(a, b), seg = (mode === "pied" && b.route) ? [[a.lat, a.lng], ...b.route, [b.lat, b.lng]] : [[a.lat, a.lng], [b.lat, b.lng]];
     L.polyline(seg, { color: "#fff", weight: mode === "pied" ? 8 : 9, opacity: .9 }).addTo(layer);
     L.polyline(seg, mode === "pied"
       ? { color: col, weight: 4, dashArray: "1 8", lineCap: "round" }
@@ -988,10 +1017,10 @@ function drawMap(fit) {
         const other = mode === "pied" ? "transport" : "pied";
         const tr_ = b.s ? tr.filter(p => p.s === b.s) : [];
         let dT = 0; for (let j = 1; j < tr_.length; j++) dT += km(tr_[j - 1], tr_[j]);
-        L.popup().setLatLng(ev.latlng).setContent(`${mode === "pied" ? "🚶 À pied" : "🚆 Transport"} · ${f1(km(a, b))} km<br><button class="link" id="segFix">Passer en ${other === "pied" ? "🚶 à pied" : "🚆 transport"}</button>`
+        L.popup().setLatLng(ev.latlng).setContent(`${mode === "pied" ? "🚶 À pied" : "🚆 Transport"} · ${f1(segKm(a, b))} km${mode === "pied" && b.route ? " (chemin estimé par les rues)" : ""}<br><button class="link" id="segFix">Passer en ${other === "pied" ? "🚶 à pied" : "🚆 transport"}</button>`
           + (b.s ? `<br><span class="meta">Tracé du ${new Date(tr_[0].t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })} · ${f1(dT)} km</span><br><button class="link danger" id="segDel">🗑️ Supprimer tout ce tracé</button>` : "")).openOn(map);
         setTimeout(() => {
-          const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { b.mode = other; save(); map.closePopup(); renderAll(); toast("Tronçon corrigé ✓"); };
+          const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { b.mode = other; delete b.route; delete b.routeKm; save(); map.closePopup(); renderAll(); routeWalks(); toast("Tronçon corrigé ✓"); };
           const del = document.getElementById("segDel"); if (del) del.onclick = function () { confirmTap(this, () => deleteTrace(b.s)); };
         }, 50);
       }).addTo(layer);
@@ -1015,7 +1044,7 @@ function drawMap(fit) {
   const days = e ? [...new Set([...tr.map(p => dayKey(p.t)), ...state.moments.filter(m => m.escId === e.id).map(m => dayKey(m.ts))])].sort() : [];
   $("legend").hidden = !days.length;
   $("legend").innerHTML = days.map(k => `<div><i style="background:${dayColor(e, new Date(k + "T12:00").getTime())}"></i>${dayLabel(k)}${ms.byDay[k] ? ` · 🚶 ${f1(ms.byDay[k].pied)} · 🚆 ${f1(ms.byDay[k].transport)}` : ""}</div>`).join("")
-    + `<div style="color:var(--muted);font-weight:400">····· à pied  ─ ─ transport</div>`;
+    + `<div style="color:var(--muted);font-weight:400">····· à pied (par les rues)  ─ ─ transport</div>`;
   renderMoveStats();
   state.moments.filter(m => e && m.escId === e.id && m.lat != null).forEach(m => {
     const img = safeImg(m.photo);
@@ -1220,6 +1249,7 @@ $("btnHere").onclick = () => locate(() => {
   if (last && last.c && km(last, pt) < 0.03 && Date.now() - last.t < 300000) { offerPtPhoto(last); $("actTxt").textContent = "Point déjà enregistré ici"; return; }
   e.track.push(pt); save(); drawMap(); renderTicket();
   offerPtPhoto(pt);
+  setTimeout(routeWalks, 1500);
   reverseGeocode(pt.lat, pt.lng).then(pl => { if (pl) { pt.place = pl; save(); drawMap(); } }).catch(() => {});
 });
 
@@ -1922,7 +1952,9 @@ const AI_KEY = "escapades-ai";
 let aiCfg = { key: "", model: "gpt-5-mini" };
 try { aiCfg = { ...aiCfg, ...JSON.parse(localStorage.getItem(AI_KEY) || "{}") }; } catch (e) {}
 const hasAi = () => !!aiCfg.key;
+function capHintUI() { const h = $("capHint"); if (h) h.textContent = hasAi() ? "Capture de l'app Santé (pas, km) ou de Google Maps « Vos trajets »" : "Sans clé IA : captures de l'app Santé uniquement (pas, km)"; }
 function aiUI() {
+  setTimeout(capHintUI, 0);
   $("aiKey").value = aiCfg.key ? "••••••••" + aiCfg.key.slice(-4) : "";
   $("aiModel").value = aiCfg.model || "gpt-5-mini";
   $("aiStatus").textContent = hasAi() ? "✓ Clé enregistrée sur ce téléphone" : "Aucune clé : les fonctions ✨ sont masquées";
@@ -2185,7 +2217,7 @@ loadIdb().then(() => {
   const n = state.moments.length, last = state.lastBackup || 0, today_ = dayKey(Date.now());
   if (n >= 3 && Date.now() - last > 2 * 864e5 && state.backupNag !== today_) { state.backupNag = today_; save(); setTimeout(() => toast("💾 Pense à sauvegarder tes souvenirs : Passeport → Sauvegarde"), 2500); }
 });
-loadWeather(); updateRate();
+loadWeather(); updateRate(); setTimeout(routeWalks, 3000);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { loadWeather(); updateRate(); } });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 
@@ -2550,7 +2582,8 @@ function parseSante(txt) {
   if (m) return { day: m[1], pas: parseInt(m[2].replace(/[^\d]/g, "")) || 0, km: parseFloat((m[3] || "").replace(",", ".")) || 0 };
   const n = parseInt(t.replace(/[^\d]/g, "")); return n ? { pas: n } : null;
 }
-$("santePaste").onclick = async () => {
+$("santeCap").onchange = ev => { closeSheet("sheetSante"); $("capFile").onchange(ev); };
+const _unusedPaste = async () => {
   try {
     const r = parseSante(await navigator.clipboard.readText());
     if (!r) return toast("Rien à coller : lance d'abord le Raccourci « Pas Escapades »");
@@ -2575,10 +2608,38 @@ $("santeDel").onclick = function () {
 // ================= Lire une capture (Santé / Google Maps) avec l'IA =================
 const MODES = { marche: "🚶 Marche", train: "🚆 Train", metro: "🚇 Métro", tram: "🚊 Tram", bus: "🚌 Bus", voiture: "🚗 Voiture", velo: "🚲 Vélo", bateau: "⛴️ Bateau", avion: "✈️ Avion" };
 let capData = null;
+// Sans clé : lecture des chiffres de l'app Santé directement sur le téléphone (Tesseract)
+async function ocrSante(f) {
+  try {
+    if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    const img = await resizePhoto(f, 1600, 0.9);
+    const { data } = await Tesseract.recognize(img, "eng");
+    const r = parseSanteText(data.text);
+    if (!r.pas && !r.km_marche) return toast("Chiffres introuvables : saisis-les dans 🩺 Pas du jour");
+    capData = { type: "sante", date: null, ...r }; openCapSheet();
+    toast("Lu sans IA : vérifie les chiffres");
+  } catch (er) { toast("Lecture impossible : saisis les chiffres dans 🩺 Pas du jour"); }
+}
+function parseSanteText(t) {
+  const txt = String(t || "").replace(/ | /g, " ");
+  const kmM = txt.match(/(\d{1,3}[.,]\d{1,2})\s*km/i);
+  const lines = txt.split("\n");
+  let pas = 0;
+  const idx = lines.findIndex(l => /\bpas\b|steps/i.test(l));
+  const scan = idx >= 0 ? lines.slice(idx, idx + 4) : lines;
+  for (const l of scan) {
+    const clean = l.replace(/\d{1,3}[.,]\d{1,2}\s*km/ig, "");
+    if (/kcal|min\b|%/i.test(clean)) continue;
+    const m = clean.match(/\b(\d{1,2}[ .]\d{3}|\d{3,6})\b/);
+    if (m) { const n = parseInt(m[1].replace(/[ .]/g, "")); if (n >= 50 && n <= 100000) { pas = n; break; } }
+  }
+  return { pas, km_marche: kmM ? parseFloat(kmM[1].replace(",", ".")) : 0 };
+}
 $("capFile").onchange = async ev => {
   const f = ev.target.files[0]; ev.target.value = ""; if (!f) return;
   const e = active(); if (!e) return openEscSheet();
   toast("Lecture de la capture…");
+  if (!hasAi()) return ocrSante(f);
   try {
     const img = await resizePhoto(f, 1500, 0.8);
     const r = await ai([{ role: "user", content: [
@@ -2647,7 +2708,7 @@ $("capSave").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v31";
+const VERSION = "v33";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
