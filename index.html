@@ -317,6 +317,9 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .phr .p b{display:block;font-size:16px}
 .phr .p i{font-style:normal;font:12px var(--mono);color:#6b4bd8}
 .phr .p span{display:block;font-size:13px;color:var(--muted)}
+.recap3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.recap3 button{border:0;border-radius:14px;padding:12px 6px;color:#fff;font:600 13px var(--sans);line-height:1.25;background:linear-gradient(135deg,#6b4bd8,#c2185b)}
+.recap3 button span{display:block;font-size:24px;margin-bottom:2px}
 .recap-out{background:#fff;border-radius:14px;padding:14px;margin-top:12px;white-space:pre-wrap;font-size:15px;line-height:1.45}
 .recap-out h4{margin:12px 0 4px;font:700 10px var(--mono);letter-spacing:.15em;color:#6b4bd8}
 .recap-out h4:first-child{margin-top:0}
@@ -407,7 +410,11 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div class="filters" id="filters"></div>
     <button class="btn red" id="btnReel">🎬 Mode montage Reel</button>
     <button class="btn" id="btnMontage">📤 Envoyer à Claude pour le montage</button>
-    <button class="btn ai-btn" id="btnRecaps">📅 Récaps Insta (jour / séjour) + carte postale</button>
+    <div class="recap3">
+      <button id="rcDay"><span>📅</span>Récap du jour</button>
+      <button id="rcTrip"><span>🧳</span>Récap séjour</button>
+      <button id="rcCard"><span>🖼️</span>Carte postale</button>
+    </div>
     <div id="polas"></div>
     <div id="story" hidden></div>
   </section>
@@ -650,8 +657,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
   <div class="panel">
     <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
     <div class="sub">POUR INSTAGRAM</div>
-    <h3>Récaps Reel & story</h3>
-    <label class="f">Période</label>
+    <h3 id="recapTitle">Récaps Reel & story</h3>
+    <label class="f" id="recapDaysLbl">Période</label>
     <div class="seg" id="recapDays"></div>
     <button class="btn ai-btn" id="recapGen">✨ Écrire le récap (journal, story, Reel)</button>
     <button class="btn" id="recapCard">🖼️ Carte postale pour la story</button>
@@ -2329,15 +2336,30 @@ function recapKm(e) {
   if (recapDay === "all") return { pied: st.pied, transport: st.transport };
   return st.byDay[recapDay] || { pied: 0, transport: 0 };
 }
-function openRecapSheet() {
+function openRecapSheet(mode) {
   const e = active(); if (!e) return openEscSheet();
   const days = [...new Set(state.moments.filter(m => m.escId === e.id).map(m => dayKey(m.ts)))].sort();
-  if (recapDay !== "all" && !days.includes(recapDay)) recapDay = days.includes(dayKey(Date.now())) ? dayKey(Date.now()) : "all";
-  segButtons("recapDays", [...days.map(k => [k, "📅 " + dayLabel(k)]), ["all", "🧳 Tout le séjour"]], recapDay, v => { recapDay = v; showSavedRecap(); });
-  $("recapGen").hidden = !hasAi();
-  showSavedRecap();
+  if (!days.length) return toast("Ajoute d'abord des moments au carnet");
+  const lastDay = days.includes(dayKey(Date.now())) ? dayKey(Date.now()) : days[days.length - 1];
+  let opts;
+  if (mode === "jour") { if (recapDay === "all" || !days.includes(recapDay)) recapDay = lastDay; opts = days.map(k => [k, "📅 " + dayLabel(k)]); }
+  else if (mode === "sejour") { recapDay = "all"; opts = null; }
+  else { if (recapDay !== "all" && !days.includes(recapDay)) recapDay = lastDay; opts = [...days.map(k => [k, "📅 " + dayLabel(k)]), ["all", "🧳 Tout le séjour"]]; }
+  $("recapTitle").textContent = mode === "jour" ? "Récap du jour" : mode === "sejour" ? "Récap du séjour" : "Carte postale story";
+  $("recapDaysLbl").hidden = $("recapDays").hidden = !opts;
+  if (opts) segButtons("recapDays", opts, recapDay, v => { recapDay = v; mode === "carte" ? ($("recapOut").innerHTML = "") : showSavedRecap(); });
+  $("recapGen").hidden = mode === "carte" || !hasAi();
+  $("recapCard").hidden = mode !== "carte";
+  $("recapCard").className = "btn red";
+  if (mode === "carte") $("recapOut").innerHTML = `<p class="pos-status" style="text-align:left">Choisis la journée ou tout le séjour, puis crée la carte postale.</p>`;
+  else showSavedRecap();
   openSheet("sheetRecap");
+  // Écrit automatiquement le récap s'il n'existe pas encore
+  if (mode !== "carte" && hasAi() && !(e.recaps && e.recaps[recapDay])) setTimeout(() => $("recapGen").click(), 300);
 }
+$("rcDay").onclick = () => openRecapSheet("jour");
+$("rcTrip").onclick = () => openRecapSheet("sejour");
+$("rcCard").onclick = () => openRecapSheet("carte");
 function showSavedRecap() {
   const e = active(), r = e && e.recaps && e.recaps[recapDay];
   $("recapOut").innerHTML = r ? recapHtml(r) : `<p class="pos-status" style="text-align:left">${hasAi() ? "Appuie sur ✨ pour écrire le récap de cette période." : "La carte postale marche sans IA. Pour les textes, ajoute ta clé dans Passeport."}</p>`;
@@ -2353,7 +2375,6 @@ function bindRecapCopy(r) {
     try { await navigator.clipboard.writeText(k === "legende" && r.hashtags ? v + "\n\n" + r.hashtags.join(" ") : v); toast("Copié ✓"); } catch (er) { toast("Copie impossible"); }
   });
 }
-$("btnRecaps").onclick = openRecapSheet;
 $("recapGen").onclick = async () => {
   const e = active(); if (!e) return;
   const ms = recapMoments(e); if (!ms.length) return toast("Pas de moments sur cette période");
@@ -2439,7 +2460,7 @@ $("recapCard").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v27";
+const VERSION = "v28";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
