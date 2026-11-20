@@ -986,8 +986,14 @@ function drawMap(fit) {
       .on("click", ev => {
         L.DomEvent.stopPropagation(ev);
         const other = mode === "pied" ? "transport" : "pied";
-        L.popup().setLatLng(ev.latlng).setContent(`${mode === "pied" ? "🚶 À pied" : "🚆 Transport"} · ${f1(km(a, b))} km<br><button class="link" id="segFix">Passer en ${other === "pied" ? "🚶 à pied" : "🚆 transport"}</button>`).openOn(map);
-        setTimeout(() => { const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { b.mode = other; save(); map.closePopup(); renderAll(); toast("Tronçon corrigé ✓"); }; }, 50);
+        const tr_ = b.s ? tr.filter(p => p.s === b.s) : [];
+        let dT = 0; for (let j = 1; j < tr_.length; j++) dT += km(tr_[j - 1], tr_[j]);
+        L.popup().setLatLng(ev.latlng).setContent(`${mode === "pied" ? "🚶 À pied" : "🚆 Transport"} · ${f1(km(a, b))} km<br><button class="link" id="segFix">Passer en ${other === "pied" ? "🚶 à pied" : "🚆 transport"}</button>`
+          + (b.s ? `<br><span class="meta">Tracé du ${new Date(tr_[0].t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })} · ${f1(dT)} km</span><br><button class="link danger" id="segDel">🗑️ Supprimer tout ce tracé</button>` : "")).openOn(map);
+        setTimeout(() => {
+          const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { b.mode = other; save(); map.closePopup(); renderAll(); toast("Tronçon corrigé ✓"); };
+          const del = document.getElementById("segDel"); if (del) del.onclick = function () { confirmTap(this, () => deleteTrace(b.s)); };
+        }, 50);
       }).addTo(layer);
     const k = dayKey(b.t); kmByDay[k] = (kmByDay[k] || 0) + km(a, b);
   }
@@ -1195,7 +1201,7 @@ function deletePt(pt) {
   e.track = e.track.filter(p => p !== pt); save(); map.closePopup(); renderAll(); toast("Point supprimé");
 }
 function offerPtPhoto(pt) {
-  $("actUndo").hidden = false; $("actUndo").onclick = () => { hideActbar(); deletePt(pt); };
+  $("actUndo").hidden = false; $("actUndo").textContent = "↩︎ Annuler"; $("actUndo").onclick = () => { hideActbar(); deletePt(pt); };
   showActbar("📍 Point enregistré" + (pt.photo ? " (avec photo)" : ""), pt.photo ? "📷 Changer" : "📷 Photo du lieu", () => { photoForPt = pt; $("ptPhoto").value = ""; $("ptPhoto").click(); });
 }
 $("ptPhoto").onchange = async ev => {
@@ -1228,18 +1234,29 @@ function setTrackUI(on) {
   $("btnTrack").classList.toggle("tracking", on);
   $("trackPill").hidden = !on;
 }
+let traceSid = null;
+function deleteTrace(sid) {
+  state.escapades.forEach(x => { if (x.track) x.track = x.track.filter(p => p.s !== sid); });
+  save(); map.closePopup(); renderAll(); toast("Tracé supprimé");
+}
 $("btnTrack").onclick = () => {
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId); watchId = null;
     keepAwake(false); setTrackUI(false); save(); renderTicket();
-    toast("Tracé arrêté et enregistré"); return;
+    const e = active(), sid = traceSid, pts = e && e.track ? e.track.filter(p => p.s === sid) : [];
+    let d = 0; for (let i = 1; i < pts.length; i++) d += km(pts[i - 1], pts[i]);
+    $("actUndo").hidden = false; $("actUndo").textContent = "🗑️ Supprimer";
+    $("actUndo").onclick = () => { hideActbar(); deleteTrace(sid); };
+    showActbar(`Tracé enregistré · ${f1(d)} km`, "✓ Garder", () => toast("Tracé gardé ✓"));
+    return;
   }
   if (!navigator.geolocation) return toast("Position indisponible sur cet appareil");
   if (!active()) return openEscSheet();
+  traceSid = uid();
   watchId = navigator.geolocation.watchPosition(p => {
     const e = active(); if (!e) return;
-    const pt = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now(), mode: curMode() };
-    me = { ...pt, acc: p.coords.accuracy };
+    const pt = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now(), mode: curMode(), s: traceSid };
+    me = { lat: pt.lat, lng: pt.lng, t: pt.t, acc: p.coords.accuracy };
     e.track = e.track || [];
     const last = e.track[e.track.length - 1];
     if (p.coords.accuracy > 80) return;              // point trop imprécis
@@ -2630,7 +2647,7 @@ $("capSave").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v30";
+const VERSION = "v31";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
