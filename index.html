@@ -2682,15 +2682,16 @@ ${r.journal ? "Journal : " + r.journal + "\n" : ""}${kind === "story" && r.story
     ? `Crée-moi une STORY Instagram en VIDÉO verticale MP4 (9:16, 1080×1920, 30 i/s) de 15 s maximum (la durée d'une story) : 4 à 6 moments forts, environ 2,5 à 3 s chacun, en suivant les textes de story ci-dessous.`
     : `Crée-moi un REEL Instagram en VIDÉO verticale MP4 (9:16, 1080×1920, 30 i/s) de ${durReel} : 8 à 14 plans${r && r.plans ? " en suivant les plans ci-dessous (garde l'ordre et l'idée, mais raccourcis les durées si besoin)" : ""}.`) + `
 
-STYLE VOULU — fun, coloré, rythmé, qui donne envie de voyager (PAS un diaporama)
-- Accroche dès la 1re seconde : la meilleure photo en plein écran + gros titre animé « ${names(e).join(" → ")} 🇮🇹 ». Jamais écrire « pack montage ».
-- Photos PLEIN ÉCRAN 9:16 (recadrées pour remplir l'écran), jamais en petit sur un fond uni.
-- Mouvement sur CHAQUE plan : zoom avant ou arrière lent (Ken Burns 100→115 %), punch-in, léger décalage ; transitions rapides (glissé, whip, flash blanc, zoom) — pas de fondu lent.
-- Rythme calé sur 120 BPM : coupes toutes les 0,5 / 1 / 1,5 s, 2 s max sauf 1 ou 2 moments forts. Le dernier plan dure 1,5 s.
-- Couleurs : étalonnage chaud et lumineux (+contraste, +saturation ~20 %, légère vignette) ; les photos ternes ou de brume passent en coupe très rapide.
-- Textes : courts (5 mots max), police très grasse (type Montserrat ExtraBold / Anton), blanc avec contour ou ombre noire, apparition « pop » animée, emojis ; garder libres le haut (250 px) et le bas (400 px) pour l'interface Instagram.
-- Versions « carnet » : 2 ou 3 au maximum, comme arrêt sur image sur les moments drôles ; le reste en photos brutes plein écran.
-- Fin : photo du couple + « À suivre… 📍 ${names(e)[1]} ».
+STYLE VOULU — un vrai contenu Instagram de voyage 2026, esthétique « photo dump » / travel vlog, PAS un diaporama ni une présentation
+- PLEIN ÉCRAN 9:16 sur 100 % des plans : recadre intelligemment en gardant les visages entiers. Jamais de bandes floues, de cadre, de fond uni ou de photo en petit. Photo horizontale = lent panoramique dessus.
+- Accroche dans la 1re seconde : la photo la plus forte (visages, sourires), mouvement immédiat.
+- Rythme : coupes nettes sur le tempo (0,4 à 1 s par plan en Reel, ~2,5 s en Story), 1 ou 2 plans plus longs sur les meilleurs moments, speed ramp sur les vidéos. Transitions : coupe sèche, flash blanc très court, zoom punch, whip — jamais de fondu, de glissé PowerPoint ou de cadre qui tourne.
+- Mouvement permanent : léger zoom (Ken Burns 100→110 %) ou micro-tremblé façon caméra à la main.
+- Look : étalonnage chaud et lumineux, contraste et saturation +15–20 %, léger grain film, petite vignette. Même look sur toutes les photos.
+- TEXTE MINIMAL, PAS DE PHRASES : 0 à 3 mots, sur 3 ou 4 plans maximum, façon stickers Instagram natifs : petite police moderne (type Instagram « Modern » / Helvetica Neue Medium, ou machine à écrire), en minuscules, avec ombre douce ou pastille semi-transparente. Exemples : « 📍 genova », « 20.11 », « menton → milano », « cin cin 🍸 ». JAMAIS sur un visage, jamais blanc sur fond clair, toujours dans la zone sûre (ni dans les 250 px du haut ni dans les 400 px du bas).
+- Ouverture : « menton → milano » + date en tout petit. Fin : la meilleure photo du couple + « to be continued » ou « 📍 ${names(e)[1].toLowerCase()} » en tout petit, 1,5 s.
+- Captures d'écran de carte : seulement en flash de 0,5 s comme « étape du trajet », ou remplace-les par une ligne de trajet animée.
+- Versions « carnet » : au plus UNE, en arrêt sur image à la fin ; le reste en photos brutes.
 ${o.song ? `- MUSIQUE PRÉVUE : « ${o.song} », que j'ajouterai moi-même sur Instagram. ${/BPM/.test(o.song) ? "Son tempo est indiqué : cale toutes les coupes sur ses temps (à la place des 120 BPM)" : "Cherche son tempo (BPM), puis cale toutes les coupes sur ses temps à la place des 120 BPM"}, repère le moment le plus accrocheur (refrain ou drop), avec le plan le plus fort pile sur le drop. Laisse la vidéo SANS son. Dis-moi ensuite à quelle seconde du morceau démarrer l'extrait sur Instagram pour que tout tombe juste. Si tu ne trouves pas le BPM, demande-le-moi.
 - Rends-moi le fichier MP4 (H.264).` : `- PAS de musique dans la vidéo (je l'ajouterai sur Instagram) : le rythme à 120 BPM permettra de caler un son tendance.
 - Rends-moi le fichier MP4 (H.264), puis 3 idées de sons Instagram qui iraient bien.`}`;
@@ -2959,8 +2960,8 @@ async function montagePlan(e, list, kind, r) {
     const content = [{ type: "text", text: `Tu prépares le montage d'${kind === "story" ? "une STORY Instagram (vidéo de 15 s max, 4 à 6 diapos)" : "un REEL Instagram (vidéo 9:16 de 12 à 30 s)"} pour un couple en voyage (${names(e).join(" → ")}).
 Utilise UNIQUEMENT ces ${list.length} photos, numérotées dans l'ordre (les images suivent dans le même ordre) :
 ${lines}
-Écris des textes qui parlent de CE QU'ON VOIT sur chaque photo et des notes, avec humour et complicité, en français. Rien sur des photos ou des lieux absents de la liste.
-JSON : {"accroche":"titre d'ouverture (5 mots max)",${kind === "story" ? `"story":[{"m":numéro de la photo,"t":"texte court à l'écran (5 mots max) + emoji"}]` : `"plans":[{"m":numéro de la photo,"d":"durée ex 1.5s","t":"cadrage/effet + texte à l'écran (5 mots max) + emoji"}] (toutes les photos, dans l'ordre, chacune une fois)`},"legende":"légende Instagram 1 à 2 phrases","hashtags":["#…"],"fin":"texte de fin court"}` }];
+Les textes à l'écran sont des STICKERS, pas des phrases : 0 à 3 mots en minuscules (lieu « 📍 genova », heure, clin d'œil « cin cin 🍸 »), sur 3 ou 4 photos maximum ; les autres plans sans texte. Ils parlent de CE QU'ON VOIT et des notes. Rien sur des photos ou des lieux absents de la liste. La légende Instagram peut être drôle et complice (1 à 2 phrases).
+JSON : {"accroche":"ouverture 2 à 4 mots en minuscules, ex. menton → milano",${kind === "story" ? `"story":[{"m":numéro de la photo,"t":"sticker 0 à 3 mots ou vide"}]` : `"plans":[{"m":numéro de la photo,"d":"durée ex 1.5s","t":"effet (zoom, flash, pan…) + sticker 0 à 3 mots ou « sans texte »"}] (toutes les photos, dans l'ordre, chacune une fois)`},"legende":"légende Instagram 1 à 2 phrases","hashtags":["#…"],"fin":"texte de fin court"}` }];
     for (const m of list.slice(0, 14)) if (safeImg(m.photo)) content.push({ type: "image_url", image_url: { url: await resizePhoto(dataUrlToFile(m.photo, "p.jpg"), 384, 0.6), detail: "low" } });
     const o = await ai([{ role: "user", content }], true);
     const ok = x => x && +x.m >= 1 && +x.m <= list.length;
@@ -3805,7 +3806,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v71";
+const VERSION = "v72";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
