@@ -356,6 +356,14 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .rc-strip{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;white-space:normal;-webkit-overflow-scrolling:touch}
 .rc-strip img{width:64px;height:64px;object-fit:cover;border-radius:8px;flex:0 0 auto;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .rc-list{white-space:normal}
+.song-row{display:flex;gap:6px;margin:4px 0 6px}.song-row input{flex:1;min-width:0}.song-row .btn{width:auto;padding:0 14px;margin:0}
+.song-it{display:flex;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:6px;margin:6px 0;white-space:normal;border:2px solid transparent}
+.song-it.on{border-color:#6b4bd8}
+.song-it img{width:48px;height:48px;border-radius:8px;object-fit:cover;flex:0 0 auto}
+.song-it .st{flex:1;min-width:0;font-size:14px;line-height:1.3}.song-it .st b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.song-it .st small{color:#8a7f72}
+.song-it button{border:0;background:#f1eadc;border-radius:50%;width:38px;height:38px;font-size:16px;flex:0 0 auto}
+.song-it .pick{background:#6b4bd8;color:#fff;border-radius:10px;width:auto;padding:0 10px;font:700 13px var(--sans)}
 .rc-pick{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:6px 0 10px}
 .rc-pick button{position:relative;aspect-ratio:1;border:3px solid #6b4bd8;border-radius:10px;padding:0;overflow:hidden;background:#f1eadc;font-size:20px}
 .rc-pick img{width:100%;height:100%;object-fit:cover;display:block}
@@ -2669,7 +2677,7 @@ STYLE VOULU — fun, coloré, rythmé, qui donne envie de voyager (PAS un diapor
 - Textes : courts (5 mots max), police très grasse (type Montserrat ExtraBold / Anton), blanc avec contour ou ombre noire, apparition « pop » animée, emojis ; garder libres le haut (250 px) et le bas (400 px) pour l'interface Instagram.
 - Versions « carnet » : 2 ou 3 au maximum, comme arrêt sur image sur les moments drôles ; le reste en photos brutes plein écran.
 - Fin : photo du couple + « À suivre… 📍 ${names(e)[1]} ».
-${o.song ? `- MUSIQUE PRÉVUE : « ${o.song} », que j'ajouterai moi-même sur Instagram. Cherche son tempo (BPM) et le moment le plus accrocheur (refrain ou drop), puis cale toutes les coupes sur ses temps à la place des 120 BPM, avec le plan le plus fort pile sur le drop. Laisse la vidéo SANS son. Dis-moi ensuite à quelle seconde du morceau démarrer l'extrait sur Instagram pour que tout tombe juste. Si tu ne trouves pas le BPM, demande-le-moi.
+${o.song ? `- MUSIQUE PRÉVUE : « ${o.song} », que j'ajouterai moi-même sur Instagram. ${/BPM/.test(o.song) ? "Son tempo est indiqué : cale toutes les coupes sur ses temps (à la place des 120 BPM)" : "Cherche son tempo (BPM), puis cale toutes les coupes sur ses temps à la place des 120 BPM"}, repère le moment le plus accrocheur (refrain ou drop), avec le plan le plus fort pile sur le drop. Laisse la vidéo SANS son. Dis-moi ensuite à quelle seconde du morceau démarrer l'extrait sur Instagram pour que tout tombe juste. Si tu ne trouves pas le BPM, demande-le-moi.
 - Rends-moi le fichier MP4 (H.264).` : `- PAS de musique dans la vidéo (je l'ajouterai sur Instagram) : le rythme à 120 BPM permettra de caler un son tendance.
 - Rends-moi le fichier MP4 (H.264), puis 3 idées de sons Instagram qui iraient bien.`}`;
   const lines = list.map((m, i) => {
@@ -2923,18 +2931,92 @@ function recapHtml(r) {
   return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>`;
 }
 const rcOff = new Set();
+// ---------- Musique : recherche comme sur Instagram (catalogue Deezer, extraits 30 s, tempo) ----------
+function getSong() { const v = localStorage.getItem("esc-song") || ""; try { const o = JSON.parse(v); if (o && o.t) return o; } catch (e) {} return v ? { t: v } : null; }
+function setSong(o) { o ? localStorage.setItem("esc-song", JSON.stringify(o)) : localStorage.removeItem("esc-song"); }
+const songText = o => o ? `« ${o.t} »${o.a ? " – " + o.a : ""}${o.bpm ? ` (tempo ${Math.round(o.bpm)} BPM${o.dur ? `, ${Math.floor(o.dur / 60)}:${String(o.dur % 60).padStart(2, "0")}` : ""})` : ""}` : "";
+function songChip() {
+  const o = getSong(); if (!o) return "";
+  return `<div class="song-it on">${o.cover ? `<img src="${esc(o.cover)}" alt="">` : `<button>🎵</button>`}<div class="st"><b>${esc(o.t)}</b><small>${esc(o.a || "")}${o.bpm ? ` · ♩ ${Math.round(o.bpm)} BPM` : ""}</small></div>${o.prev ? `<button data-play="${esc(o.prev)}">▶</button>` : ""}<button id="songClear" aria-label="Retirer">✕</button></div>`;
+}
+let jpN = 0;
+function jsonp(url) {
+  return new Promise((res, rej) => {
+    const cb = "__jp" + (++jpN) + Date.now(), sc = document.createElement("script"), t = setTimeout(() => { clean(); rej(new Error("Pas de réponse")); }, 10000);
+    const clean = () => { clearTimeout(t); delete window[cb]; sc.remove(); };
+    window[cb] = d => { clean(); res(d); };
+    sc.onerror = () => { clean(); rej(new Error("Recherche impossible")); };
+    sc.src = url + (url.includes("?") ? "&" : "?") + "output=jsonp&callback=" + cb; document.body.appendChild(sc);
+  });
+}
+let songAudio = null;
+function playPrev(btn, url) {
+  if (songAudio && songAudio.src === url && !songAudio.paused) { songAudio.pause(); btn.textContent = "▶"; return; }
+  if (songAudio) songAudio.pause();
+  document.querySelectorAll("[data-play]").forEach(b => b.textContent = "▶");
+  songAudio = new Audio(url); songAudio.play().catch(() => toast("Lecture impossible"));
+  btn.textContent = "⏸"; songAudio.onended = () => btn.textContent = "▶";
+}
+async function songSearch(q) {
+  q = (q || "").trim(); if (!q) return toast("Tape un titre ou un artiste");
+  $("songRes").innerHTML = `<p class="pos-status">Recherche…</p>`;
+  try {
+    const d = await jsonp(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=8`), list = d.data || [];
+    $("songRes").innerHTML = list.length ? list.map((x, i) => `<div class="song-it"><img src="${esc(x.album && x.album.cover_small || "")}" alt=""><div class="st"><b>${esc(x.title)}</b><small>${esc(x.artist && x.artist.name || "")}</small></div>${x.preview ? `<button data-play="${esc(x.preview)}">▶</button>` : ""}<button class="pick" data-song="${i}">Choisir</button></div>`).join("") : `<p class="pos-status">Rien trouvé : essaie un autre mot.</p>`;
+    bindSongBtns();
+    $("songRes").querySelectorAll("[data-song]").forEach(b => b.onclick = async () => {
+      const x = list[+b.dataset.song]; b.textContent = "…";
+      let bpm = 0; try { const t = await jsonp(`https://api.deezer.com/track/${x.id}`); bpm = +t.bpm || 0; } catch (e) {}
+      setSong({ t: x.title, a: x.artist && x.artist.name, bpm, dur: x.duration, cover: x.album && x.album.cover_small, prev: x.preview });
+      if (songAudio) songAudio.pause();
+      $("songRes").innerHTML = ""; $("songSel").innerHTML = songChip(); bindSongBtns();
+      toast("🎵 " + x.title + (bpm ? ` · ${Math.round(bpm)} BPM` : "") + " ✓");
+    });
+  } catch (er) { $("songRes").innerHTML = `<p class="pos-status">${esc(er.message)} (réseau ?)</p>`; }
+}
+function bindSongBtns() {
+  document.querySelectorAll("#songSel [data-play], #songRes [data-play]").forEach(b => b.onclick = () => playPrev(b, b.dataset.play));
+  const c = $("songClear"); if (c) c.onclick = () => { setSong(null); if (songAudio) songAudio.pause(); $("songSel").innerHTML = ""; };
+}
+async function songFromCapture(f) {
+  $("songRes").innerHTML = `<p class="pos-status">Lecture de la capture…</p>`;
+  try {
+    let q = "";
+    if (hasAi()) {
+      const r = await ai([{ role: "user", content: [{ type: "text", text: `Sur cette capture (Instagram, Shazam, Spotify, Apple Music, TikTok…), quel morceau de musique est affiché ? JSON : {"titre":"","artiste":""} (vide si aucun)` }, { type: "image_url", image_url: { url: await resizePhoto(f, 1200, 0.8) } }] }], true);
+      q = [r.titre, r.artiste].filter(Boolean).join(" ");
+    } else {
+      if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+      const { data } = await Tesseract.recognize(await resizePhoto(f, 1600, 0.9), "eng");
+      q = data.text.split("\n").map(x => x.trim()).filter(x => x.length > 2 && !/^\d/.test(x)).slice(0, 2).join(" ");
+    }
+    if (!q) throw new Error("Pas de musique trouvée sur la capture : tape le titre");
+    $("rcSong").value = q; songSearch(q);
+  } catch (er) { $("songRes").innerHTML = `<p class="pos-status">${esc(er.message)}</p>`; }
+}
 function sendHtml() {
   const e = active(), ms = e ? recapMoments(e) : [], on = ms.filter(m => !rcOff.has(m.id)).length;
   return `<div class="sub" style="margin-top:14px" id="rcSend">ENVOYER À CLAUDE POUR LE MONTAGE</div>
   <div class="pos-status" style="text-align:left;display:flex;justify-content:space-between;align-items:center"><span id="rcPickN">${on}/${ms.length} photos choisies</span><span><button class="link" id="rcAll">Toutes</button> · <button class="link" id="rcNone">Aucune</button></span></div>
   <div class="rc-pick">${ms.map(m => { const img = safeImg(m.photo); return `<button class="${rcOff.has(m.id) ? "off" : ""}" data-pick="${m.id}">${img ? `<img src="${img}" alt="">` : `<span>${m.video ? "🎬" : "📍"}</span>`}<i>✓</i></button>`; }).join("")}</div>
-  <label class="pos-status" style="display:flex;gap:8px;align-items:center;text-align:left;margin:6px 0"><input type="checkbox" id="rcCarnet" ${packCarnet() ? "checked" : ""}> Joindre aussi les versions « carnet » (Claude choisit, sinon photos brutes seulement)</label>
-  <input id="rcSong" placeholder="🎵 Son Instagram prévu (titre – artiste), facultatif" value="${esc(localStorage.getItem("esc-song") || "")}" style="width:100%;margin:4px 0 8px">
+  <label class="pos-status" style="display:flex;gap:8px;align-items:center;text-align:left;margin:6px 0"><input type="checkbox" id="rcCarnet" style="width:22px;height:22px;flex:0 0 auto;margin:0" ${packCarnet() ? "checked" : ""}> Joindre aussi les versions « carnet » (Claude choisit, sinon photos brutes seulement)</label>
+  <div class="sub" style="margin-top:6px">🎵 MUSIQUE PRÉVUE SUR INSTAGRAM (FACULTATIF)</div>
+  <div id="songSel">${songChip()}</div>
+  <div class="song-row"><input id="rcSong" placeholder="Titre ou artiste…" enterkeyhint="search"><button class="btn light" id="songGo" aria-label="Chercher">🔍</button><button class="btn light" id="songCap" aria-label="Depuis une capture">📷</button></div>
+  <input type="file" id="songFile" accept="image/*" hidden>
+  <div id="songRes"></div>
   <div class="row2"><button class="btn ai-btn" id="rcToReel">🎬 Reel vidéo</button><button class="btn" id="rcToStory">📱 Story</button></div>
   <button class="btn light" id="rcCopyBrief" ${lastBrief ? "" : "hidden"}>📋 Copier le brief (à coller dans Claude)</button>
   <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude.</p>`;
 }
 function bindRecapCopy(r) {
+  if ($("songGo")) {
+    $("songGo").onclick = () => songSearch($("rcSong").value);
+    $("rcSong").onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); songSearch($("rcSong").value); } };
+    $("songCap").onclick = () => { $("songFile").value = ""; $("songFile").click(); };
+    $("songFile").onchange = ev => { if (ev.target.files[0]) songFromCapture(ev.target.files[0]); };
+    bindSongBtns();
+  }
   const upN = () => { const e = active(), ms = recapMoments(e), n = $("rcPickN"); if (n) n.textContent = `${ms.filter(m => !rcOff.has(m.id)).length}/${ms.length} photos choisies`; };
   $("recapOut").querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { const id = b.dataset.pick; rcOff.has(id) ? rcOff.delete(id) : rcOff.add(id); b.classList.toggle("off", rcOff.has(id)); upN(); });
   if ($("rcAll")) $("rcAll").onclick = () => { rcOff.clear(); $("recapOut").querySelectorAll("[data-pick]").forEach(b => b.classList.remove("off")); upN(); };
@@ -2947,7 +3029,8 @@ function bindRecapCopy(r) {
     try {
       const { files, fnames } = await packFiles(list);
       const period = recapDay === "all" ? "Tout le séjour" : dayLabel(recapDay);
-      const song = ($("rcSong") && $("rcSong").value.trim()) || ""; localStorage.setItem("esc-song", song);
+      if (songAudio) songAudio.pause();
+      const song = songText(getSong());
       await sharePack(montageBrief(e, list, fnames, { kind, r, period, km: recapKm(e), song }), files, (kind === "story" ? "Story · " : "Reel · ") + names(e)[1] + " · " + period);
     } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
     b.disabled = false; b.textContent = lbl;
@@ -3580,7 +3663,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v60";
+const VERSION = "v61";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
