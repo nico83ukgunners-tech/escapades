@@ -2934,10 +2934,40 @@ const rcOff = new Set();
 // ---------- Musique : recherche comme sur Instagram (catalogue Deezer, extraits 30 s, tempo) ----------
 function getSong() { const v = localStorage.getItem("esc-song") || ""; try { const o = JSON.parse(v); if (o && o.t) return o; } catch (e) {} return v ? { t: v } : null; }
 function setSong(o) { o ? localStorage.setItem("esc-song", JSON.stringify(o)) : localStorage.removeItem("esc-song"); }
-const songText = o => o ? `« ${o.t} »${o.a ? " – " + o.a : ""}${o.bpm ? ` (tempo ${Math.round(o.bpm)} BPM${o.dur ? `, ${Math.floor(o.dur / 60)}:${String(o.dur % 60).padStart(2, "0")}` : ""})` : ""}` : "";
+const songText = o => o ? `« ${o.t} »${o.a ? " – " + o.a : ""}${o.bpm ? ` (tempo ${Math.round(o.bpm)} BPM${o.dur ? `, ${Math.floor(o.dur / 60)}:${String(o.dur % 60).padStart(2, "0")}` : ""})` : ""}${o.start ? `, extrait conseillé à partir de ${o.start}` : ""}` : "";
+// L'IA propose 5 morceaux adaptés aux photos, notes et lieux ; on valide, Claude monte dessus, on ajoute le son sur Instagram
+async function songSuggest() {
+  const e = active(), ms = recapMoments(e).filter(m => !rcOff.has(m.id)), r = e.recaps && e.recaps[recapDay];
+  if (!ms.length) return toast("Pas de moments sur cette période");
+  const b = $("songAi"); b.disabled = true; b.textContent = "L'IA écoute vos souvenirs…";
+  $("songRes").innerHTML = "";
+  try {
+    const lines = ms.map(m => `- ${new Date(m.ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })} ${m.lieu || ""}${m.place ? " (" + m.place + ")" : ""}${m.note ? " : " + m.note : ""}${tagsOf(m).length ? " [" + tagsOf(m).join(", ") + "]" : ""}`).join("\n");
+    const out = await ai([{ role: "user", content: `Choisis la musique d'un Reel Instagram de voyage en couple : ${names(e).join(" → ")}, ${recapDay === "all" ? "tout le séjour" : dayLabel(recapDay)}.
+Moments :
+${lines}
+${r && r.journal ? "Résumé : " + r.journal : ""}
+Propose 5 morceaux qui EXISTENT vraiment et qui sont très connus ou tendance (donc disponibles dans la bibliothèque musicale d'Instagram), variés (français, italien, international), qui collent à l'ambiance de ces moments : fun, complice, voyage, avec du punch. Évite les morceaux tristes ou trop lents.
+JSON : {"musiques":[{"titre":"","artiste":"","bpm":0,"debut":"m:ss (début conseillé de l'extrait, refrain ou drop)","pourquoi":"une phrase courte et drôle"}]}` }], true);
+    const list = (out.musiques || []).filter(x => x.titre).slice(0, 5);
+    if (!list.length) throw new Error("Pas de proposition, réessaie");
+    $("songRes").innerHTML = `<p class="pos-status" style="text-align:left">Touche « Valider » sur celle que tu préfères :</p>` + list.map((x, i) => `<div class="song-it"><button>🎵</button><div class="st"><b>${esc(x.titre)}</b><small>${esc(x.artiste)}${num(x.bpm) ? ` · ♩ ${Math.round(num(x.bpm))}` : ""}${x.debut ? ` · dès ${esc(x.debut)}` : ""}</small><small style="display:block;color:#6b4bd8">${esc(x.pourquoi || "")}</small></div><button class="pick" data-sug="${i}">Valider</button></div>`).join("");
+    $("songRes").querySelectorAll("[data-sug]").forEach(bt => bt.onclick = async () => {
+      const x = list[+bt.dataset.sug]; bt.textContent = "…";
+      const o = { t: x.titre, a: x.artiste, bpm: num(x.bpm) || 0, start: x.debut || "" };
+      try { // tempo exact et pochette si Deezer connaît le morceau
+        const d = await jsonp(`https://api.deezer.com/search?q=${encodeURIComponent(x.artiste + " " + x.titre)}&limit=1`), t = d.data && d.data[0];
+        if (t) { o.cover = t.album && t.album.cover_small; o.dur = t.duration; try { const tt = await jsonp(`https://api.deezer.com/track/${t.id}`); if (+tt.bpm) o.bpm = +tt.bpm; } catch (er) {} }
+      } catch (er) {}
+      setSong(o); $("songRes").innerHTML = ""; $("songSel").innerHTML = songChip(); bindSongBtns();
+      toast("🎵 " + o.t + " validée ✓ · ajoute-la sur Instagram en postant");
+    });
+  } catch (er) { toast(er.message || "Suggestion impossible"); }
+  b.disabled = false; b.textContent = "✨ Autres idées de musique";
+}
 function songChip() {
   const o = getSong(); if (!o) return "";
-  return `<div class="song-it on">${o.cover ? `<img src="${esc(o.cover)}" alt="">` : `<button>🎵</button>`}<div class="st"><b>${esc(o.t)}</b><small>${esc(o.a || "")}${o.bpm ? ` · ♩ ${Math.round(o.bpm)} BPM` : ""}</small></div>${o.prev ? `<button data-play="${esc(o.prev)}" data-alt="${esc(o.prev2 || "")}">▶</button>` : ""}<button id="songClear" aria-label="Retirer">✕</button></div>`;
+  return `<div class="song-it on">${o.cover ? `<img src="${esc(o.cover)}" alt="">` : `<button>🎵</button>`}<div class="st"><b>${esc(o.t)}</b><small>${esc(o.a || "")}${o.bpm ? ` · ♩ ${Math.round(o.bpm)} BPM` : ""}${o.start ? ` · dès ${esc(o.start)}` : ""}</small></div>${o.prev ? `<button data-play="${esc(o.prev)}" data-alt="${esc(o.prev2 || "")}">▶</button>` : ""}<button id="songClear" aria-label="Retirer">✕</button></div>`;
 }
 let jpN = 0;
 function jsonp(url) {
@@ -3016,6 +3046,7 @@ function sendHtml() {
   <label class="pos-status" style="display:flex;gap:8px;align-items:center;text-align:left;margin:6px 0"><input type="checkbox" id="rcCarnet" style="width:22px;height:22px;flex:0 0 auto;margin:0" ${packCarnet() ? "checked" : ""}> Joindre aussi les versions « carnet » (Claude choisit, sinon photos brutes seulement)</label>
   <div class="sub" style="margin-top:6px">🎵 MUSIQUE PRÉVUE SUR INSTAGRAM (FACULTATIF)</div>
   <div id="songSel">${songChip()}</div>
+  ${hasAi() ? `<button class="btn ai-btn" id="songAi" style="margin:4px 0">✨ Choisir la musique pour moi</button>` : ""}
   <div class="song-row"><input id="rcSong" placeholder="Titre ou artiste…" enterkeyhint="search"><button class="btn light" id="songGo" aria-label="Chercher">🔍</button><button class="btn light" id="songCap" aria-label="Depuis une capture">📷</button></div>
   <input type="file" id="songFile" accept="image/*" hidden>
   <div id="songRes"></div>
@@ -3024,6 +3055,7 @@ function sendHtml() {
   <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude.</p>`;
 }
 function bindRecapCopy(r) {
+  if ($("songAi")) $("songAi").onclick = songSuggest;
   if ($("songGo")) {
     $("songGo").onclick = () => songSearch($("rcSong").value);
     $("rcSong").onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); songSearch($("rcSong").value); } };
@@ -3677,7 +3709,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v63";
+const VERSION = "v64";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
