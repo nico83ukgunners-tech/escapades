@@ -288,6 +288,16 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .info-card p{margin:6px 0;font-size:14px;line-height:1.4}
 .info-card .lbl{font:700 10px var(--mono);letter-spacing:.15em;color:#6b4bd8;margin-top:10px}
 
+.movestats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.movestats div{background:#fff;border-radius:14px;padding:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.movestats .ic{font-size:20px}
+.movestats b{display:block;font:700 18px var(--mono);margin-top:2px}
+.movestats small{font:10px var(--mono);color:var(--muted);letter-spacing:.08em}
+.mode-row{display:flex;align-items:center;gap:8px;margin-top:10px}
+.mode-row .lbl{font:10px var(--mono);letter-spacing:.15em;color:var(--muted);flex:0 0 auto}
+.mode-row .seg{flex:1}
+.mode-row .seg .chip{padding:7px 6px;font-size:13px}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -355,6 +365,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
       <button class="btn light" id="btnHere">📍 Je suis ici</button>
       <button class="btn" id="btnTrack">▶ Tracer</button>
     </div>
+    <div class="mode-row"><span class="lbl">MODE</span><div class="seg" id="modeSel"></div></div>
+    <div class="movestats" id="moveStats"></div>
     <button class="btn red" id="btnReplay">🎬 Rejouer le voyage</button>
     <div class="pos-status">Tape sur la carte pour choisir un point</div>
 
@@ -749,6 +761,33 @@ function initMap() {
   });
 }
 
+// À pied ou en transport : selon le mode choisi, sinon selon la vitesse entre deux points
+const WALK_MAX_KMH = 7;
+function segMode(a, b) {
+  if (b.mode === "pied" || b.mode === "transport") return b.mode;
+  const d = km(a, b), h = (b.t - a.t) / 3.6e6;
+  if (!(h > 0)) return d > 1.5 ? "transport" : "pied";
+  return d / h > WALK_MAX_KMH ? "transport" : "pied";
+}
+function moveStats(e) {
+  const tr = (e && e.track) || [], r = { pied: 0, transport: 0, byDay: {} };
+  for (let i = 1; i < tr.length; i++) {
+    const a = tr[i - 1], b = tr[i], m = segMode(a, b), d = km(a, b), k = dayKey(b.t);
+    r[m] += d; (r.byDay[k] = r.byDay[k] || { pied: 0, transport: 0 })[m] += d;
+  }
+  return r;
+}
+const f1 = n => n.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+function renderMoveStats() {
+  const e = active(), st = moveStats(e);
+  $("moveStats").innerHTML = `
+    <div><span class="ic">🚆</span><b>${f1(st.transport)}</b><small>KM TRANSPORT</small></div>
+    <div><span class="ic">🚶</span><b>${f1(st.pied)}</b><small>KM À PIED · ≈ ${Math.round(st.pied * 1350).toLocaleString("fr-FR")} PAS</small></div>
+    <div><span class="ic">📊</span><b>${f1(st.pied + st.transport)}</b><small>KM AU TOTAL</small></div>`;
+  segButtons("modeSel", [["auto", "🤖 Auto"], ["pied", "🚶 À pied"], ["transport", "🚆 Transport"]], state.modeSel || "auto", v => { state.modeSel = v; save(); });
+}
+const curMode = () => (state.modeSel === "pied" || state.modeSel === "transport") ? state.modeSel : undefined;
+
 // Une couleur par jour
 const DAYCOL = ["#b3362d", "#1f4e8c", "#2e7d4f", "#b8730b", "#7b3fa0", "#0f6b73", "#c2185b"];
 const dayKey = t => toLocalInput(t || Date.now()).slice(0, 10);
@@ -769,10 +808,19 @@ function drawMap(fit) {
   const e = active(), pts = [];
   const tr = e && e.track ? e.track : [];
   const kmByDay = {};
+  const ms = moveStats(e);
   for (let i = 1; i < tr.length; i++) {
-    const a = tr[i - 1], b = tr[i], col = dayColor(e, b.t);
-    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: "#fff", weight: 8, opacity: .9 }).addTo(layer);
-    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: col, weight: 4, dashArray: "1 8", lineCap: "round" }).addTo(layer);
+    const a = tr[i - 1], b = tr[i], col = dayColor(e, b.t), mode = segMode(a, b), seg = [[a.lat, a.lng], [b.lat, b.lng]];
+    L.polyline(seg, { color: "#fff", weight: mode === "pied" ? 8 : 9, opacity: .9 }).addTo(layer);
+    L.polyline(seg, mode === "pied"
+      ? { color: col, weight: 4, dashArray: "1 8", lineCap: "round" }
+      : { color: col, weight: 5, dashArray: "12 8", lineCap: "butt" })
+      .on("click", ev => {
+        L.DomEvent.stopPropagation(ev);
+        const other = mode === "pied" ? "transport" : "pied";
+        L.popup().setLatLng(ev.latlng).setContent(`${mode === "pied" ? "🚶 À pied" : "🚆 Transport"} · ${f1(km(a, b))} km<br><button class="link" id="segFix">Passer en ${other === "pied" ? "🚶 à pied" : "🚆 transport"}</button>`).openOn(map);
+        setTimeout(() => { const bt = document.getElementById("segFix"); if (bt) bt.onclick = () => { b.mode = other; save(); map.closePopup(); renderAll(); toast("Tronçon corrigé ✓"); }; }, 50);
+      }).addTo(layer);
     const k = dayKey(b.t); kmByDay[k] = (kmByDay[k] || 0) + km(a, b);
   }
   tr.forEach(p => pts.push([p.lat, p.lng]));
@@ -783,7 +831,9 @@ function drawMap(fit) {
   // Légende par jour
   const days = e ? [...new Set([...tr.map(p => dayKey(p.t)), ...state.moments.filter(m => m.escId === e.id).map(m => dayKey(m.ts))])].sort() : [];
   $("legend").hidden = !days.length;
-  $("legend").innerHTML = days.map(k => `<div><i style="background:${dayColor(e, new Date(k + "T12:00").getTime())}"></i>${dayLabel(k)}${kmByDay[k] ? " · " + kmByDay[k].toFixed(1) + " km" : ""}</div>`).join("");
+  $("legend").innerHTML = days.map(k => `<div><i style="background:${dayColor(e, new Date(k + "T12:00").getTime())}"></i>${dayLabel(k)}${ms.byDay[k] ? ` · 🚶 ${f1(ms.byDay[k].pied)} · 🚆 ${f1(ms.byDay[k].transport)}` : ""}</div>`).join("")
+    + `<div style="color:var(--muted);font-weight:400">····· à pied  ─ ─ transport</div>`;
+  renderMoveStats();
   state.moments.filter(m => e && m.escId === e.id && m.lat != null).forEach(m => {
     const img = safeImg(m.photo);
     const icon = L.divIcon({ className: "", iconSize: [38, 38], iconAnchor: [19, 19],
@@ -827,7 +877,7 @@ function renderJournal() {
   let html = "", cur = null;
   items.forEach((it, i) => {
     const k = dayKey(it.t), col = dayColor(e, it.t);
-    if (k !== cur) { cur = k; html += `<div class="day"><i style="background:${col}"></i>${dayLabel(k)}<span>${kmByDay[k] ? kmByDay[k].toFixed(1) + " km" : ""}</span></div>`; }
+    if (k !== cur) { cur = k; html += `<div class="day"><i style="background:${col}"></i>${dayLabel(k)}<span>${(() => { const d = moveStats(e).byDay[k]; return d ? `🚶 ${f1(d.pied)} · 🚆 ${f1(d.transport)} km` : ""; })()}</span></div>`; }
     html += `<button class="jrow" style="--c:${col}" data-jr="${i}">
       <span class="tm">${new Date(it.t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
       ${it.img ? `<img class="th" src="${it.img}" alt="">` : `<span class="th">${it.kind === "pt" ? "📍" : "📝"}</span>`}
@@ -956,7 +1006,7 @@ $("btnHere").onclick = () => locate(() => {
   if (!e) return toast("Crée une escapade pour enregistrer tes points");
   e.track = e.track || [];
   const last = e.track[e.track.length - 1];
-  const pt = { lat: me.lat, lng: me.lng, t: Date.now(), c: 1 };
+  const pt = { lat: me.lat, lng: me.lng, t: Date.now(), c: 1, mode: curMode() };
   if (last && last.c && km(last, pt) < 0.03 && Date.now() - last.t < 300000) return toast("Point déjà enregistré ici");
   e.track.push(pt); save(); drawMap(); renderTicket();
   toast("📍 Point enregistré sur le trajet");
@@ -984,7 +1034,7 @@ $("btnTrack").onclick = () => {
   if (!active()) return openEscSheet();
   watchId = navigator.geolocation.watchPosition(p => {
     const e = active(); if (!e) return;
-    const pt = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() };
+    const pt = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now(), mode: curMode() };
     me = { ...pt, acc: p.coords.accuracy };
     e.track = e.track || [];
     const last = e.track[e.track.length - 1];
@@ -1018,7 +1068,7 @@ function renderTicket() {
     <div class="t-grid">
       <div><small>DÉPART</small><span>${fmt(e.debut, {day:"numeric", month:"short"}) || "—"}</span></div>
       <div><small>MOMENTS</small><span>${n}</span></div>
-      <div><small>TRACÉ</small><span>${trackKm(e.track).toFixed(1)} km</span></div>
+      <div><small>TRACÉ</small><span>${f1(trackKm(e.track))} km</span><small style="letter-spacing:0;margin-top:2px">🚶 ${f1(moveStats(e).pied)} · 🚆 ${f1(moveStats(e).transport)}</small></div>
     </div>
     <div class="t-stub">
       <div><small>RETOUR DANS</small><span id="countdown">—</span></div>
@@ -1034,7 +1084,7 @@ function renderTicket() {
     <div class="t-grid">
       <div><small>DÉPART</small><span>${fmt(e.debut, {day:"numeric", month:"short"}) || "—"}</span></div>
       <div><small>MOMENTS</small><span>${n}</span></div>
-      <div><small>TRACÉ</small><span>${trackKm(e.track).toFixed(1)} km</span></div>
+      <div><small>TRACÉ</small><span>${f1(trackKm(e.track))} km</span><small style="letter-spacing:0;margin-top:2px">🚶 ${f1(moveStats(e).pied)} · 🚆 ${f1(moveStats(e).transport)}</small></div>
     </div>
     <div class="t-stub">
       <div><small>RETOUR DANS</small><span id="countdown">—</span></div>
@@ -1766,7 +1816,9 @@ ${fmt(e.debut)}
 --------------------------------
 Moments ........ ${ms.length}
 Photos ......... ${ms.filter(m => m.photo).length}
-Tracé .......... ${trackKm(e.track).toFixed(1)} km
+Tracé .......... ${f1(trackKm(e.track))} km
+  🚆 Transport .. ${f1(moveStats(e).transport)} km
+  🚶 À pied ..... ${f1(moveStats(e).pied)} km (≈ ${Math.round(moveStats(e).pied * 1350).toLocaleString("fr-FR")} pas)
 Spots faits .... ${state.spots.filter(s => s.fait).length}
 --------------------------------
 📍 Lieux : ${lieux.join(", ") || "—"}
@@ -1898,7 +1950,7 @@ document.addEventListener("touchend", () => {
 document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
 
 // ================= Version + imports par lien =================
-const VERSION = "v21";
+const VERSION = "v22";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
