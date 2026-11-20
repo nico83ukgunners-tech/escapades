@@ -27,7 +27,7 @@ body{
   background:var(--paper);
   background-image:radial-gradient(rgba(120,90,50,.07) 1px,transparent 1px);
   background-size:14px 14px;
-  padding-bottom:calc(96px + env(safe-area-inset-bottom));
+  padding-bottom:calc(170px + env(safe-area-inset-bottom));
 }
 
 /* ---------- Couverture de passeport ---------- */
@@ -257,6 +257,37 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .pola.drop-after{box-shadow:7px 0 0 var(--red),0 6px 16px rgba(0,0,0,.12)}
 .drag-ghost{position:fixed;z-index:5000;pointer-events:none;transform:rotate(3deg) scale(1.06);box-shadow:0 18px 40px rgba(0,0,0,.35)!important;opacity:.95}
 
+.map-ctrls{position:absolute;right:10px;top:10px;z-index:600;display:flex;flex-direction:column;gap:8px}
+.map-ctrls button{width:40px;height:40px;border-radius:12px;border:0;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:18px}
+.legend{position:absolute;left:10px;bottom:26px;z-index:600;background:rgba(255,255,255,.92);border-radius:10px;padding:6px 9px;font:600 11px var(--mono);box-shadow:0 2px 6px rgba(0,0,0,.15)}
+.legend div{display:flex;align-items:center;gap:6px;margin:2px 0}
+.legend i{width:12px;height:4px;border-radius:3px;display:inline-block}
+.mapwrap.full{position:fixed;inset:0;z-index:2500;margin:0;border-radius:0;border:0}
+.mapwrap.full #map{height:100vh;min-height:0}
+.mapwrap.full .map-ctrls{top:calc(12px + env(safe-area-inset-top))}
+.replay-title{position:absolute;left:50%;top:calc(18px + env(safe-area-inset-top));transform:translateX(-50%);z-index:700;background:var(--navy);color:#f1d98a;
+  padding:10px 18px;border-radius:14px;text-align:center;font-family:var(--display);font-size:22px;font-weight:800;white-space:nowrap;box-shadow:0 8px 20px rgba(0,0,0,.3)}
+.replay-title small{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:#fff;font-weight:400}
+.replay-card{position:absolute;left:50%;bottom:calc(40px + env(safe-area-inset-bottom));transform:translateX(-50%) rotate(-2deg);z-index:700;width:62%;max-width:280px;
+  background:#fff;padding:8px 8px 12px;box-shadow:0 14px 34px rgba(0,0,0,.35);animation:pop .35s ease}
+.replay-card img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.replay-card .cap{font-family:var(--hand);font-size:24px;line-height:1.05;margin-top:6px}
+.replay-card .dt{font-family:var(--mono);font-size:10px;color:var(--muted)}
+@keyframes pop{from{transform:translateX(-50%) scale(.6) rotate(-8deg);opacity:0}to{transform:translateX(-50%) rotate(-2deg);opacity:1}}
+.replay-stop{position:absolute;left:12px;top:calc(12px + env(safe-area-inset-top));z-index:800;border:0;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font:600 13px var(--sans);padding:9px 14px}
+.journal .day{display:flex;align-items:center;gap:8px;margin:18px 2px 6px;font-family:var(--display);font-size:18px;font-weight:800}
+.journal .day i{width:14px;height:14px;border-radius:50%}
+.journal .day span{margin-left:auto;font:600 12px var(--mono);color:var(--muted)}
+.jrow{display:flex;align-items:center;gap:10px;width:100%;background:#fff;border:0;border-left:4px solid var(--c);border-radius:12px;padding:9px 10px;margin:6px 0;text-align:left;font:inherit;color:inherit}
+.jrow .tm{font:700 12px var(--mono);width:44px;flex:0 0 auto}
+.jrow .th{width:40px;height:40px;border-radius:8px;object-fit:cover;flex:0 0 auto;background:var(--paper);display:flex;align-items:center;justify-content:center;font-size:18px}
+.jrow b{display:block;font-size:14px}
+.jrow .meta{font:10px var(--mono);color:var(--muted)}
+.info-card{background:linear-gradient(160deg,#fff,#f6f0ff);border-radius:16px;padding:14px;margin-top:12px;border:1.5px solid #e4dbfb}
+.info-card h4{margin:0 0 6px;font-family:var(--display);font-size:18px}
+.info-card p{margin:6px 0;font-size:14px;line-height:1.4}
+.info-card .lbl{font:700 10px var(--mono);letter-spacing:.15em;color:#6b4bd8;margin-top:10px}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -310,15 +341,28 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
   <section id="tab-carte">
     <div class="ticket" id="ticket"></div>
 
-    <div class="mapwrap">
+    <div class="mapwrap" id="mapwrap">
       <div id="map"></div>
       <div class="map-pill" id="trackPill" hidden>● TRACÉ EN COURS</div>
+      <div class="map-ctrls">
+        <button id="mFull" aria-label="Plein écran">⤢</button>
+        <button id="mAll" aria-label="Vue d'ensemble">🗺️</button>
+        <button id="mMe" aria-label="Me recentrer">◎</button>
+      </div>
+      <div class="legend" id="legend" hidden></div>
     </div>
     <div class="row2">
       <button class="btn light" id="btnHere">📍 Je suis ici</button>
       <button class="btn" id="btnTrack">▶ Tracer</button>
     </div>
+    <button class="btn red" id="btnReplay">🎬 Rejouer le voyage</button>
     <div class="pos-status">Tape sur la carte pour choisir un point</div>
+
+    <button class="btn ai-btn" id="btnInfos" data-ai-only hidden>✨ Infos & bonnes adresses autour de nous</button>
+    <div id="infos"></div>
+
+    <h2><small>JOURNAL DE ROUTE</small>Notre parcours</h2>
+    <div class="journal" id="journal"></div>
   </section>
 
   <!-- ============ CARNET ============ -->
@@ -705,24 +749,45 @@ function initMap() {
   });
 }
 
+// Une couleur par jour
+const DAYCOL = ["#b3362d", "#1f4e8c", "#2e7d4f", "#b8730b", "#7b3fa0", "#0f6b73", "#c2185b"];
+const dayKey = t => toLocalInput(t || Date.now()).slice(0, 10);
+function dayIndex(e) {
+  const keys = [...new Set([...(e.track || []).map(p => dayKey(p.t)), ...state.moments.filter(m => m.escId === e.id).map(m => dayKey(m.ts))])].sort();
+  return k => Math.max(0, keys.indexOf(k));
+}
+const dayColor = (e, t) => DAYCOL[dayIndex(e)(dayKey(t)) % DAYCOL.length];
+const dayLabel = k => new Date(k + "T12:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+function allPoints(e) {
+  const pts = (e && e.track ? e.track : []).map(p => [p.lat, p.lng]);
+  state.moments.filter(m => e && m.escId === e.id && m.lat != null).forEach(m => pts.push([m.lat, m.lng]));
+  return pts;
+}
+
 function drawMap(fit) {
   layer.clearLayers();
   const e = active(), pts = [];
-  if (e && e.track && e.track.length > 1) {
-    const line = e.track.map(p => [p.lat, p.lng]);
-    L.polyline(line, { color: "#fff", weight: 8, opacity: .9 }).addTo(layer);
-    L.polyline(line, { color: inkOf(e.id), weight: 4, dashArray: "1 8", lineCap: "round" }).addTo(layer);
-    pts.push(...line);
+  const tr = e && e.track ? e.track : [];
+  const kmByDay = {};
+  for (let i = 1; i < tr.length; i++) {
+    const a = tr[i - 1], b = tr[i], col = dayColor(e, b.t);
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: "#fff", weight: 8, opacity: .9 }).addTo(layer);
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]], { color: col, weight: 4, dashArray: "1 8", lineCap: "round" }).addTo(layer);
+    const k = dayKey(b.t); kmByDay[k] = (kmByDay[k] || 0) + km(a, b);
   }
-  if (e && e.track) e.track.filter(p => p.c).forEach(p => {
-    L.circleMarker([p.lat, p.lng], { radius: 6, color: inkOf(e.id), weight: 3, fillColor: "#fff", fillOpacity: 1 })
-      .bindPopup("📍 Pointage · " + new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })).addTo(layer);
-    pts.push([p.lat, p.lng]);
+  tr.forEach(p => pts.push([p.lat, p.lng]));
+  tr.filter(p => p.c).forEach(p => {
+    L.circleMarker([p.lat, p.lng], { radius: 6, color: dayColor(e, p.t), weight: 3, fillColor: "#fff", fillOpacity: 1 })
+      .bindPopup("📍 " + esc(p.place || "Pointage") + "<br>" + new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })).addTo(layer);
   });
+  // Légende par jour
+  const days = e ? [...new Set([...tr.map(p => dayKey(p.t)), ...state.moments.filter(m => m.escId === e.id).map(m => dayKey(m.ts))])].sort() : [];
+  $("legend").hidden = !days.length;
+  $("legend").innerHTML = days.map(k => `<div><i style="background:${dayColor(e, new Date(k + "T12:00").getTime())}"></i>${dayLabel(k)}${kmByDay[k] ? " · " + kmByDay[k].toFixed(1) + " km" : ""}</div>`).join("");
   state.moments.filter(m => e && m.escId === e.id && m.lat != null).forEach(m => {
     const img = safeImg(m.photo);
     const icon = L.divIcon({ className: "", iconSize: [38, 38], iconAnchor: [19, 19],
-      html: `<div class="pin" style="--ink-c:${inkOf(m.escId)}">${img ? `<img src="${img}">` : ((TAGS[tagsOf(m)[0]] || ["📍"])[0])}</div>` });
+      html: `<div class="pin" style="--ink-c:${dayColor(e, m.ts)}">${img ? `<img src="${img}">` : ((TAGS[tagsOf(m)[0]] || ["📍"])[0])}</div>` });
     L.marker([m.lat, m.lng], { icon }).on("click", () => openViewer(m.id)).addTo(layer);
     pts.push([m.lat, m.lng]);
   });
@@ -735,7 +800,140 @@ function drawMap(fit) {
     L.circleMarker([me.lat, me.lng], { radius: 7, color: "#fff", weight: 3, fillColor: "#1e88e5", fillOpacity: 1 }).addTo(layer);
   }
   if (fit && pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+  renderJournal();
 }
+
+// ---------- Contrôles de carte ----------
+$("mFull").onclick = () => {
+  const w = $("mapwrap"), on = !w.classList.toggle("full") ? false : true;
+  $("mFull").textContent = on ? "✕" : "⤢"; document.body.style.overflow = on ? "hidden" : "";
+  setTimeout(() => map.invalidateSize(), 80);
+};
+$("mAll").onclick = () => { const p = allPoints(active()); if (p.length) map.fitBounds(p, { padding: [40, 40], maxZoom: 15 }); else toast("Pas encore de points sur le trajet"); };
+$("mMe").onclick = () => me ? map.setView([me.lat, me.lng], 16) : locate(() => map.setView([me.lat, me.lng], 16));
+
+// ---------- Journal de route ----------
+function renderJournal() {
+  const e = active(), box = $("journal");
+  if (!box) return;
+  if (!e) { box.innerHTML = ""; return; }
+  const items = [
+    ...(e.track || []).filter(p => p.c).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, kind: "pt", title: p.place || "Pointage", sub: "📍 Je suis ici" })),
+    ...state.moments.filter(m => m.escId === e.id).map(m => ({ t: m.ts, lat: m.lat, lng: m.lng, kind: "mo", id: m.id, img: safeImg(m.photo), title: m.lieu || "Moment", sub: m.place ? "📍 " + m.place : "" }))
+  ].sort((a, b) => a.t - b.t);
+  if (!items.length) { box.innerHTML = `<div class="empty"><b>Le journal est vide</b>Appuie sur « Je suis ici » à chaque arrêt, ou ajoute un moment avec le bouton +.</div>`; return; }
+  const tr = e.track || [], kmByDay = {};
+  for (let i = 1; i < tr.length; i++) { const k = dayKey(tr[i].t); kmByDay[k] = (kmByDay[k] || 0) + km(tr[i - 1], tr[i]); }
+  let html = "", cur = null;
+  items.forEach((it, i) => {
+    const k = dayKey(it.t), col = dayColor(e, it.t);
+    if (k !== cur) { cur = k; html += `<div class="day"><i style="background:${col}"></i>${dayLabel(k)}<span>${kmByDay[k] ? kmByDay[k].toFixed(1) + " km" : ""}</span></div>`; }
+    html += `<button class="jrow" style="--c:${col}" data-jr="${i}">
+      <span class="tm">${new Date(it.t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+      ${it.img ? `<img class="th" src="${it.img}" alt="">` : `<span class="th">${it.kind === "pt" ? "📍" : "📝"}</span>`}
+      <div><b>${esc(it.title)}</b><div class="meta">${esc(it.sub)}</div></div>
+    </button>`;
+  });
+  box.innerHTML = html;
+  box.querySelectorAll("[data-jr]").forEach(b => b.onclick = () => {
+    const it = items[+b.dataset.jr];
+    if (it.kind === "mo" && it.lat == null) return openViewer(it.id);
+    if (it.lat == null) return;
+    window.scrollTo({ top: $("mapwrap").offsetTop - 80, behavior: "smooth" });
+    map.setView([it.lat, it.lng], 16);
+  });
+}
+
+// ---------- Rejouer le voyage ----------
+let replayStop = null;
+$("btnReplay").onclick = async () => {
+  const e = active(); if (!e) return openEscSheet();
+  const pts = (e.track || []).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, pt: 1 }));
+  const mos = state.moments.filter(m => m.escId === e.id).map(m => ({ t: m.ts, lat: m.lat, lng: m.lng, m }));
+  const steps = [...pts, ...mos].sort((a, b) => a.t - b.t);
+  if (steps.length < 2) return toast("Il faut au moins 2 points ou moments pour rejouer");
+  const w = $("mapwrap");
+  if (!w.classList.contains("full")) $("mFull").click();
+  await new Promise(r => setTimeout(r, 300));
+  let stopped = false; replayStop = () => { stopped = true; };
+  const ui = document.createElement("div");
+  const n = mos.length, kmTot = trackKm(e.track);
+  ui.innerHTML = `<button class="replay-stop">■ Stop</button><div class="replay-title"><small>${esc(fmt(e.debut, { day: "numeric", month: "long" }).toUpperCase())}</small>${esc(names(e)[1])}</div>`;
+  w.appendChild(ui);
+  ui.querySelector(".replay-stop").onclick = () => replayStop();
+  layer.clearLayers();
+  const all = allPoints(e);
+  if (all.length) map.fitBounds(all, { padding: [60, 60], maxZoom: 13 });
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  await wait(1800);
+  const stepMs = Math.max(140, Math.min(800, 16000 / steps.length));
+  let line = null, prev = null;
+  for (const s of steps) {
+    if (stopped) break;
+    if (s.lat != null) {
+      const ll = [s.lat, s.lng], col = dayColor(e, s.t);
+      if (prev) L.polyline([prev, ll], { color: col, weight: 5, opacity: .95, lineCap: "round" }).addTo(layer);
+      if (s.pt && !s.m) L.circleMarker(ll, { radius: 4, color: col, weight: 2, fillColor: "#fff", fillOpacity: 1 }).addTo(layer);
+      map.panTo(ll, { animate: true, duration: stepMs / 1000 });
+      prev = ll;
+    }
+    if (s.m) {
+      const img = safeImg(s.m.photo);
+      if (s.lat != null) L.marker([s.lat, s.lng], { icon: L.divIcon({ className: "", iconSize: [38, 38], iconAnchor: [19, 19],
+        html: `<div class="pin" style="--ink-c:${dayColor(e, s.t)}">${img ? `<img src="${img}">` : "📍"}</div>` }) }).addTo(layer);
+      const card = document.createElement("div");
+      card.className = "replay-card";
+      card.innerHTML = `${img ? `<img src="${img}">` : ""}<div class="cap">${esc(s.m.lieu || "Moment")}</div><div class="dt">${new Date(s.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}${s.m.place ? " · " + esc(s.m.place) : ""}</div>`;
+      ui.appendChild(card);
+      await wait(1900); card.remove();
+    } else await wait(stepMs);
+  }
+  if (!stopped) {
+    if (all.length) map.fitBounds(all, { padding: [60, 60], maxZoom: 13 });
+    ui.querySelector(".replay-title").innerHTML = `<small>${n} MOMENTS · ${kmTot.toFixed(0)} KM</small>${esc(names(e)[1])} ❤️`;
+    await wait(3500);
+  }
+  ui.remove(); replayStop = null;
+  if (w.classList.contains("full")) $("mFull").click();
+  drawMap();
+};
+
+// ---------- ✨ Infos & bonnes adresses autour de nous ----------
+$("btnInfos").onclick = () => {
+  const btn = $("btnInfos"); btn.disabled = true; btn.textContent = "Je regarde autour de vous…";
+  const run = async () => {
+    try {
+      const e = active();
+      let place = "";
+      try { place = me ? await reverseGeocode(me.lat, me.lng) : ""; } catch (er) {}
+      const where = me ? `${place || "lieu inconnu"} (GPS ${me.lat.toFixed(4)}, ${me.lng.toFixed(4)})` : (e ? names(e)[1] : "?");
+      const r = await ai([{ role: "user", content:
+`Nous sommes un couple en week-end (escapade : ${e ? names(e).join(" → ") : "?"}), en ce moment à : ${where}.
+Donne en français, court et concret :
+- "anecdote" : 1 à 2 phrases de culture G surprenante sur ce lieu ou tout près ;
+- "pratique" : 1 phrase utile pour notre visite (astuce, coutume locale, à éviter, horaire typique…) ;
+- "voir" : 1 à 2 choses à voir à pied tout près ;
+- "adresses" : 2 à 3 cafés, bars ou restos réputés très proches, uniquement des établissements réels que tu es sûr de connaître, avec le type et pourquoi (spécialité, réputation).
+JSON : {"anecdote":"","pratique":"","voir":[{"nom":"","pourquoi":""}],"adresses":[{"nom":"","type":"","pourquoi":""}]}` }], true);
+      const ad = (r.adresses || []).slice(0, 3);
+      $("infos").innerHTML = `<div class="info-card">
+        <h4>📍 ${esc(place || (e ? names(e)[1] : "Autour de vous"))}</h4>
+        ${r.anecdote ? `<div class="lbl">LE SAVIEZ-VOUS ?</div><p>${esc(r.anecdote)}</p>` : ""}
+        ${r.pratique ? `<div class="lbl">BON À SAVOIR</div><p>${esc(r.pratique)}</p>` : ""}
+        ${(r.voir || []).length ? `<div class="lbl">À VOIR TOUT PRÈS</div>${r.voir.slice(0, 2).map(v => `<p><b>${esc(v.nom)}</b> · ${esc(v.pourquoi || "")}</p>`).join("")}` : ""}
+        ${ad.length ? `<div class="lbl">BONNES ADRESSES</div>${ad.map((a, i) => `<p><b>${esc(a.nom)}</b> <span class="meta">${esc(a.type || "")}</span><br>${esc(a.pourquoi || "")}<br><button class="link" data-addr="${i}" style="padding:2px 0">+ Ajouter aux spots</button></p>`).join("")}` : ""}
+        <p class="pos-status" style="text-align:left">Suggestions de l'IA : vérifie les avis et les horaires avant d'y aller.</p>
+      </div>`;
+      $("infos").querySelectorAll("[data-addr]").forEach(b => b.onclick = () => {
+        const a = ad[+b.dataset.addr];
+        state.spots.push({ id: uid(), nom: a.nom, ou: place, fait: false, lat: null, lng: null, ts: Date.now() });
+        save(); renderAll(); b.textContent = "✓ Ajouté aux spots"; b.disabled = true;
+      });
+    } catch (er) { toast(er.message); }
+    btn.disabled = false; btn.textContent = "✨ Infos & bonnes adresses autour de nous";
+  };
+  me ? run() : locate(run, true);
+};
 
 // ================= Position & tracé =================
 function locate(cb, quiet) {
@@ -762,6 +960,7 @@ $("btnHere").onclick = () => locate(() => {
   if (last && last.c && km(last, pt) < 0.03 && Date.now() - last.t < 300000) return toast("Point déjà enregistré ici");
   e.track.push(pt); save(); drawMap(); renderTicket();
   toast("📍 Point enregistré sur le trajet");
+  reverseGeocode(pt.lat, pt.lng).then(pl => { if (pl) { pt.place = pl; save(); drawMap(); } }).catch(() => {});
 });
 
 async function keepAwake(on) {
@@ -1699,7 +1898,7 @@ document.addEventListener("touchend", () => {
 document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
 
 // ================= Version + imports par lien =================
-const VERSION = "v20";
+const VERSION = "v21";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
