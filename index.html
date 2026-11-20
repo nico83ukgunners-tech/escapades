@@ -2926,7 +2926,7 @@ $("recapCard").onclick = async () => {
     g.fillStyle = "#f3ebdd"; g.fillRect(0, 0, W, H);
     g.fillStyle = "rgba(120,90,50,.08)"; for (let x = 10; x < W; x += 28) for (let y = 10; y < H; y += 28) g.fillRect(x, y, 2, 2);
     g.fillStyle = "#1b2a4a"; g.fillRect(0, 0, W, 430);
-    g.fillStyle = "#c9a227"; g.font = "28px 'Space Mono', monospace"; g.fillText("RÉPUBLIQUE DES ESCAPADES", 70, 110);
+    g.fillStyle = "#c9a227"; g.font = "28px 'Space Mono', monospace"; g.fillText(("CARNET D'ESCAPADES · " + names(e).join(" → ")).toUpperCase(), 70, 110, W - 140);
     g.fillStyle = "#f1d98a"; g.font = "800 120px Fraunces, Georgia, serif"; g.fillText(names(e)[1], 64, 250, W - 130);
     g.fillStyle = "#ffffff"; g.font = "34px 'Space Mono', monospace";
     g.fillText(recapDay === "all" ? `${fmt(e.debut, { day: "numeric", month: "long" })} · le séjour` : dayLabel(recapDay), 70, 330);
@@ -2934,24 +2934,71 @@ $("recapCard").onclick = async () => {
     g.save(); g.translate(910, 300); g.rotate(-0.25); g.strokeStyle = "#b3362d"; g.lineWidth = 6; g.beginPath(); g.arc(0, 0, 95, 0, Math.PI * 2); g.stroke();
     g.setLineDash([8, 8]); g.beginPath(); g.arc(0, 0, 78, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
     g.fillStyle = "#b3362d"; g.font = "700 30px 'Space Mono', monospace"; g.textAlign = "center"; g.fillText("VISA", 0, -8); g.font = "24px 'Space Mono', monospace"; g.fillText(toLocalInput(ms[0] ? ms[0].ts : Date.now()).slice(0, 10).split("-").reverse().join("."), 0, 28); g.restore(); g.textAlign = "left";
-    // trajet stylisé
+    // trajet sur un vrai fond de carte (tuiles OpenStreetMap), avec les villes
     const box = { x: 90, y: 500, w: W - 180, h: 600 };
     g.fillStyle = "#ffffff"; g.shadowColor = "rgba(0,0,0,.12)"; g.shadowBlur = 24; g.fillRect(box.x - 20, box.y - 20, box.w + 40, box.h + 40); g.shadowBlur = 0;
-    const tr = (e.track || []).filter(p => recapDay === "all" || dayKey(p.t) === recapDay);
-    const pts = [...tr.map(p => [p.lat, p.lng]), ...ms.filter(m => m.lat != null).map(m => [m.lat, m.lng])];
-    if (pts.length) {
+    const path = pathOf(e).filter(p => recapDay === "all" || dayKey(p.t) === recapDay);
+    const geo = path.length ? path : ms.filter(m => m.lat != null).map(m => ({ lat: m.lat, lng: m.lng, t: m.ts }));
+    if (geo.length) {
+      const wx = (ln, z) => 256 * 2 ** z * (ln + 180) / 360;
+      const wy = (la, z) => { const r = la * Math.PI / 180; return 256 * 2 ** z * (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2; };
       let [a0, b0, a1, b1] = [Infinity, Infinity, -Infinity, -Infinity];
-      pts.forEach(([la, ln]) => { a0 = Math.min(a0, la); a1 = Math.max(a1, la); b0 = Math.min(b0, ln); b1 = Math.max(b1, ln); });
-      const kx = Math.cos((a0 + a1) / 2 * Math.PI / 180), sx = (b1 - b0) * kx || 0.001, sy = (a1 - a0) || 0.001, sc = Math.min(box.w / sx, box.h / sy) * 0.85;
-      const P = ([la, ln]) => [box.x + box.w / 2 + ((ln - (b0 + b1) / 2) * kx) * sc, box.y + box.h / 2 - (la - (a0 + a1) / 2) * sc];
-      g.lineCap = "round";
-      for (let i = 1; i < tr.length; i++) {
-        const [x1, y1] = P([tr[i - 1].lat, tr[i - 1].lng]), [x2, y2] = P([tr[i].lat, tr[i].lng]), mode = segMode(tr[i - 1], tr[i]);
-        g.strokeStyle = dayColor(e, tr[i].t); g.lineWidth = mode === "pied" ? 7 : 9; g.setLineDash(mode === "pied" ? [2, 16] : [26, 14]);
+      geo.forEach(p => { a0 = Math.min(a0, p.lat); a1 = Math.max(a1, p.lat); b0 = Math.min(b0, p.lng); b1 = Math.max(b1, p.lng); });
+      let z = 15;
+      while (z > 3 && ((wx(b1, z) - wx(b0, z)) * 1.3 > box.w || (wy(a0, z) - wy(a1, z)) * 1.3 > box.h)) z--;
+      const cx = (wx(b0, z) + wx(b1, z)) / 2, cy = (wy(a0, z) + wy(a1, z)) / 2;
+      const P = p => [box.x + box.w / 2 + wx(p.lng, z) - cx, box.y + box.h / 2 + wy(p.lat, z) - cy];
+      // fond de carte sur un canvas séparé (si le serveur refuse, on garde un fond papier)
+      const mc = document.createElement("canvas"); mc.width = box.w; mc.height = box.h;
+      const mg = mc.getContext("2d"); mg.fillStyle = "#efe6d3"; mg.fillRect(0, 0, box.w, box.h);
+      const x0 = cx - box.w / 2, y0 = cy - box.h / 2, n = 2 ** z, tiles = [];
+      for (let tx = Math.floor(x0 / 256); tx <= Math.floor((x0 + box.w) / 256); tx++)
+        for (let ty = Math.floor(y0 / 256); ty <= Math.floor((y0 + box.h) / 256); ty++)
+          if (ty >= 0 && ty < n) tiles.push([tx, ty]);
+      let okTiles = false;
+      if (navigator.onLine && tiles.length <= 30) {
+        const res = await Promise.all(tiles.map(([tx, ty]) => new Promise(rs => {
+          const im = new Image(); im.crossOrigin = "anonymous";
+          const t = setTimeout(() => rs(null), 8000);
+          im.onload = () => { clearTimeout(t); rs([im, tx, ty]); }; im.onerror = () => { clearTimeout(t); rs(null); };
+          im.src = `https://tile.openstreetmap.org/${z}/${((tx % n) + n) % n}/${ty}.png?pc=1`;
+        })));
+        res.forEach(r => { if (r) mg.drawImage(r[0], r[1] * 256 - x0, r[2] * 256 - y0); });
+        try { mg.getImageData(0, 0, 1, 1); okTiles = res.some(Boolean); } catch (er) { okTiles = false; }
+        if (okTiles) { mg.fillStyle = "rgba(243,235,221,.22)"; mg.fillRect(0, 0, box.w, box.h); }
+      }
+      if (okTiles) g.drawImage(mc, box.x, box.y); else { g.fillStyle = "#efe6d3"; g.fillRect(box.x, box.y, box.w, box.h); }
+      g.save(); g.beginPath(); g.rect(box.x, box.y, box.w, box.h); g.clip();
+      g.lineCap = "round"; g.lineJoin = "round";
+      for (let i = 1; i < geo.length; i++) {
+        const [x1, y1] = P(geo[i - 1]), [x2, y2] = P(geo[i]), mode = segMode(geo[i - 1], geo[i]);
+        g.setLineDash([]); g.strokeStyle = "rgba(255,255,255,.95)"; g.lineWidth = 15; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+        g.strokeStyle = dayColor(e, geo[i].t); g.lineWidth = mode === "pied" ? 7 : 8; g.setLineDash(mode === "pied" ? [2, 14] : [24, 12]);
         g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
       }
       g.setLineDash([]);
-      ms.filter(m => m.lat != null).forEach(m => { const [x, y] = P([m.lat, m.lng]); g.fillStyle = "#fff"; g.beginPath(); g.arc(x, y, 16, 0, 7); g.fill(); g.fillStyle = dayColor(e, m.ts); g.beginPath(); g.arc(x, y, 10, 0, 7); g.fill(); });
+      ms.filter(m => m.lat != null).forEach(m => { const [x, y] = P(m); g.fillStyle = "#fff"; g.beginPath(); g.arc(x, y, 15, 0, 7); g.fill(); g.fillStyle = dayColor(e, m.ts); g.beginPath(); g.arc(x, y, 9, 0, 7); g.fill(); });
+      // étiquettes : départ, villes traversées (d'après les lieux), arrivée
+      const cityOf = p => { const m = p.mom ? state.moments.find(x => x.id === p.mom) : null, pl = (m && m.place) || p.place || ""; const parts = pl.split(",").map(x => x.trim()).filter(Boolean); return parts.length ? parts[parts.length - 1] : ""; };
+      const labels = [], seen = new Set();
+      geo.forEach((p, i) => { let c = cityOf(p); if (!c && i === 0) c = names(e)[0]; if (!c && i === geo.length - 1) c = names(e)[names(e).length - 1]; if (c && !seen.has(c.toLowerCase())) { seen.add(c.toLowerCase()); labels.push([c, p]); } });
+      const keep = labels.length <= 5 ? labels : [labels[0], ...labels.slice(1, -1).filter((_, i, a) => i % Math.ceil(a.length / 3) === 0), labels[labels.length - 1]];
+      const placed = [];
+      g.font = "700 30px 'Space Mono', monospace";
+      keep.forEach(([c, p], k) => {
+        let [x, y] = P(p); const tw = Math.min(360, g.measureText(c).width) + 28;
+        let lx = Math.min(box.x + box.w - tw - 8, Math.max(box.x + 8, x - tw / 2)), ly = y - 62;
+        if (ly < box.y + 8) ly = y + 22;
+        while (placed.some(([px, py]) => Math.abs(px - lx) < tw && Math.abs(py - ly) < 46)) ly += 48;
+        placed.push([lx, ly]);
+        g.fillStyle = k === keep.length - 1 ? "#b3362d" : "#1b2a4a"; g.beginPath(); g.roundRect ? g.roundRect(lx, ly, tw, 42, 21) : g.rect(lx, ly, tw, 42); g.fill();
+        g.fillStyle = "#fff"; g.textAlign = "left"; g.fillText(c, lx + 14, ly + 31, tw - 28);
+      });
+      const [sx, sy] = P(geo[0]), [ex, ey] = P(geo[geo.length - 1]);
+      g.fillStyle = "#1b2a4a"; g.beginPath(); g.arc(sx, sy, 13, 0, 7); g.fill();
+      g.font = "52px serif"; g.textAlign = "center"; g.fillText("📍", ex, ey - 4);
+      g.restore(); g.textAlign = "left";
+      if (okTiles) { g.fillStyle = "rgba(255,255,255,.8)"; g.fillRect(box.x + box.w - 250, box.y + box.h - 30, 250, 30); g.fillStyle = "#555"; g.font = "18px sans-serif"; g.fillText("© OpenStreetMap", box.x + box.w - 240, box.y + box.h - 9); }
     } else { g.fillStyle = "#8a7f72"; g.font = "36px 'Space Mono', monospace"; g.textAlign = "center"; g.fillText("✈︎", W / 2, box.y + box.h / 2); g.textAlign = "left"; }
     // 3 photos polaroid (coups de cœur et 🎬 d'abord)
     const pick3 = ms.filter(m => safeImg(m.photo)).sort((a, b) => ((b.rating || 0) + (tagsOf(b).includes("reel") ? 2 : 0)) - ((a.rating || 0) + (tagsOf(a).includes("reel") ? 2 : 0))).slice(0, 3).sort((a, b) => a.ts - b.ts);
@@ -2962,7 +3009,12 @@ $("recapCard").onclick = async () => {
       g.shadowColor = "rgba(0,0,0,.28)"; g.shadowBlur = 30; g.fillStyle = "#fff"; g.fillRect(-s / 2 - 16, -s / 2 - 16, s + 32, s + 90); g.shadowBlur = 0;
       const r = Math.max(s / im.width, s / im.height), w = im.width * r, h = im.height * r;
       g.save(); g.beginPath(); g.rect(-s / 2, -s / 2, s, s); g.clip(); g.drawImage(im, -w / 2, -h / 2, w, h); g.restore();
-      g.fillStyle = "#2a2420"; g.font = "700 34px Caveat, cursive"; g.textAlign = "center"; g.fillText((pick3[i].lieu || "").slice(0, 22), 0, s / 2 + 52); g.restore();
+      g.fillStyle = "#2a2420"; g.textAlign = "center";
+      { let t = pick3[i].lieu || "", fs = 34; g.font = `700 ${fs}px Caveat, cursive`;
+        while (fs > 24 && g.measureText(t).width > s + 20) { fs -= 2; g.font = `700 ${fs}px Caveat, cursive`; }
+        while (t.length > 3 && g.measureText(t + "…").width > s + 20) t = t.slice(0, -1).trimEnd();
+        g.fillText(t === (pick3[i].lieu || "") ? t : t + "…", 0, s / 2 + 52); }
+      g.restore();
     }
     // chiffres
     g.textAlign = "center"; g.fillStyle = "#1b2a4a"; g.font = "700 40px 'Space Mono', monospace";
@@ -3455,7 +3507,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v57";
+const VERSION = "v58";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
