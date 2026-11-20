@@ -230,6 +230,12 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .title-row .ai-mini{flex:0 0 auto;border:0;border-radius:12px;padding:0 14px;font-size:20px;background:linear-gradient(135deg,#6b4bd8,#c2185b);color:#fff}
 .tagchips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
 .tagchips .chip{padding:8px 12px;font-size:14px}
+.tag-form{display:flex;gap:8px;margin-top:8px;width:100%}
+.tag-form input{padding:10px;font-size:15px}
+.tag-form .emo{width:58px;text-align:center;flex:0 0 auto}
+.tag-form button{flex:0 0 auto;border:0;border-radius:12px;background:var(--navy);color:#fff;font:600 14px var(--sans);padding:0 14px}
+.tag-mine{width:100%;font:11px var(--mono);color:var(--muted);margin-top:6px}
+.tag-mine button{background:none;border:0;color:var(--red);font:inherit;padding:2px 4px}
 .tagchips .chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .hearts{display:flex;gap:6px;margin-top:6px}
 .hearts button{background:none;border:0;font-size:28px;padding:2px;filter:grayscale(1);opacity:.35}
@@ -810,6 +816,8 @@ function load() {
   normalize();
 }
 function normalize() {
+  state.customTags = state.customTags || {};
+  Object.entries(state.customTags).forEach(([k, v]) => { TAGS[k] = v; });
   state.depenses = state.depenses || []; state.people = state.people || ["Nico", "Ashleigh"]; state.rateGBP = state.rateGBP || 1.15;
   if (!active() && state.escapades.length) state.activeId = state.escapades[state.escapades.length - 1].id;
   // Répare les dépenses importées sans escapade valide (ex. import fait avec une ancienne version)
@@ -1498,8 +1506,23 @@ $("momPlace").addEventListener("change", async () => {
   } catch (e) { $("momExif").textContent = "Pas de réseau : le lieu est gardé en texte"; }
 });
 
+let tagFormOpen = false;
 function renderMomTags() {
-  $("momTags").innerHTML = Object.entries(TAGS).map(([k, [ic, l]]) => `<button class="chip ${momTags.has(k) ? "on" : ""}" data-tag="${k}">${ic} ${l}</button>`).join("");
+  const mine = Object.keys(state.customTags || {});
+  $("momTags").innerHTML = Object.entries(TAGS).map(([k, [ic, l]]) => `<button class="chip ${momTags.has(k) ? "on" : ""}" data-tag="${k}">${esc(ic)} ${esc(l)}</button>`).join("")
+    + `<button class="chip" id="tagAdd" style="border-style:dashed">${tagFormOpen ? "✕ Fermer" : "＋ Créer un thème"}</button>`
+    + (tagFormOpen ? `<div class="tag-form"><input class="emo" id="tagEmo" placeholder="🏷️" maxlength="4"><input id="tagName" placeholder="Gare, Glace, Plage…" maxlength="22" style="flex:1;min-width:0"><button id="tagOk">Ajouter</button></div>`
+      + (mine.length ? `<div class="tag-mine">Mes thèmes : ${mine.map(k => `${esc(TAGS[k][0])} ${esc(TAGS[k][1])} <button data-tagdel="${k}">supprimer</button>`).join(" · ")}</div>` : "") : "");
+  $("tagAdd").onclick = () => { tagFormOpen = !tagFormOpen; renderMomTags(); if (tagFormOpen) setTimeout(() => $("tagEmo").focus(), 50); };
+  if ($("tagOk")) $("tagOk").onclick = () => {
+    const name = $("tagName").value.trim(); if (!name) return toast("Donne un nom au thème");
+    const emo = $("tagEmo").value.trim() || "🏷️", key = "c_" + slug(name).toLowerCase();
+    state.customTags = state.customTags || {}; state.customTags[key] = [emo, name]; TAGS[key] = [emo, name];
+    momTags.add(key); tagFormOpen = false; save(); renderMomTags(); toast("Thème « " + name + " » créé ✓");
+  };
+  $("momTags").querySelectorAll("[data-tagdel]").forEach(b => b.onclick = function () {
+    confirmTap(this, () => { const k = b.dataset.tagdel; delete state.customTags[k]; delete TAGS[k]; momTags.delete(k); save(); renderMomTags(); renderCarnet(); });
+  });
   $("momTags").querySelectorAll("[data-tag]").forEach(b => b.onclick = () => {
     const k = b.dataset.tag; momTags.has(k) ? momTags.delete(k) : momTags.add(k); b.classList.toggle("on", momTags.has(k));
   });
@@ -2708,7 +2731,7 @@ $("capSave").onclick = async () => {
 };
 
 // ================= Version + imports par lien =================
-const VERSION = "v33";
+const VERSION = "v34";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
