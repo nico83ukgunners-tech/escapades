@@ -298,6 +298,14 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .mode-row .seg{flex:1}
 .mode-row .seg .chip{padding:7px 6px;font-size:13px}
 
+.actbar{position:fixed;left:12px;right:12px;bottom:calc(160px + env(safe-area-inset-bottom));z-index:4000;display:none;align-items:center;gap:10px;
+  background:var(--navy);color:#fff;border-radius:16px;padding:10px 10px 10px 16px;box-shadow:0 10px 24px rgba(0,0,0,.3);font-size:14px}
+.actbar.show{display:flex;animation:fade .2s}
+.actbar span{flex:1}
+.actbar button{border:0;border-radius:12px;background:var(--gold);color:var(--navy);font:700 14px var(--sans);padding:10px 14px}
+.pt-pin{width:30px;height:30px;border-radius:50%;border:3px solid var(--ink-c);overflow:hidden;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.pt-pin img{width:100%;height:100%;object-fit:cover}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -612,6 +620,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="actbar" id="actbar"><span id="actTxt"></span><button id="actBtn"></button></div>
+<input id="ptPhoto" type="file" accept="image/*" capture="environment" hidden>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -825,8 +835,15 @@ function drawMap(fit) {
   }
   tr.forEach(p => pts.push([p.lat, p.lng]));
   tr.filter(p => p.c).forEach(p => {
-    L.circleMarker([p.lat, p.lng], { radius: 6, color: dayColor(e, p.t), weight: 3, fillColor: "#fff", fillOpacity: 1 })
-      .bindPopup("📍 " + esc(p.place || "Pointage") + "<br>" + new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })).addTo(layer);
+    const img = safeImg(p.photo), col = dayColor(e, p.t);
+    const pop = `${img ? `<img src="${img}" style="width:170px;border-radius:8px;display:block;margin-bottom:6px">` : ""}📍 <b>${esc(p.place || "Pointage")}</b><br>${new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}<br><button class="link" data-ptphoto="${p.t}" style="padding:4px 0">📷 ${img ? "Changer la photo" : "Ajouter une photo"}</button>`;
+    const mk = img
+      ? L.marker([p.lat, p.lng], { icon: L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 15], html: `<div class="pt-pin" style="--ink-c:${col}"><img src="${img}"></div>` }) })
+      : L.circleMarker([p.lat, p.lng], { radius: 6, color: col, weight: 3, fillColor: "#fff", fillOpacity: 1 });
+    mk.bindPopup(pop).on("popupopen", () => setTimeout(() => {
+      const b = document.querySelector(`[data-ptphoto="${p.t}"]`);
+      if (b) b.onclick = () => { photoForPt = p; $("ptPhoto").value = ""; $("ptPhoto").click(); };
+    }, 30)).addTo(layer);
   });
   // Légende par jour
   const days = e ? [...new Set([...tr.map(p => dayKey(p.t)), ...state.moments.filter(m => m.escId === e.id).map(m => dayKey(m.ts))])].sort() : [];
@@ -868,7 +885,7 @@ function renderJournal() {
   if (!box) return;
   if (!e) { box.innerHTML = ""; return; }
   const items = [
-    ...(e.track || []).filter(p => p.c).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, kind: "pt", title: p.place || "Pointage", sub: "📍 Je suis ici" })),
+    ...(e.track || []).filter(p => p.c).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, kind: "pt", img: safeImg(p.photo), title: p.place || "Pointage", sub: "📍 Je suis ici" })),
     ...state.moments.filter(m => m.escId === e.id).map(m => ({ t: m.ts, lat: m.lat, lng: m.lng, kind: "mo", id: m.id, img: safeImg(m.photo), title: m.lieu || "Moment", sub: m.place ? "📍 " + m.place : "" }))
   ].sort((a, b) => a.t - b.t);
   if (!items.length) { box.innerHTML = `<div class="empty"><b>Le journal est vide</b>Appuie sur « Je suis ici » à chaque arrêt, ou ajoute un moment avec le bouton +.</div>`; return; }
@@ -898,7 +915,7 @@ function renderJournal() {
 let replayStop = null;
 $("btnReplay").onclick = async () => {
   const e = active(); if (!e) return openEscSheet();
-  const pts = (e.track || []).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, pt: 1 }));
+  const pts = (e.track || []).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, pt: 1, photo: safeImg(p.photo), place: p.place }));
   const mos = state.moments.filter(m => m.escId === e.id).map(m => ({ t: m.ts, lat: m.lat, lng: m.lng, m }));
   const steps = [...pts, ...mos].sort((a, b) => a.t - b.t);
   if (steps.length < 2) return toast("Il faut au moins 2 points ou moments pour rejouer");
@@ -936,6 +953,11 @@ $("btnReplay").onclick = async () => {
       card.innerHTML = `${img ? `<img src="${img}">` : ""}<div class="cap">${esc(s.m.lieu || "Moment")}</div><div class="dt">${new Date(s.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}${s.m.place ? " · " + esc(s.m.place) : ""}</div>`;
       ui.appendChild(card);
       await wait(1900); card.remove();
+    } else if (s.photo) {
+      const card = document.createElement("div");
+      card.className = "replay-card";
+      card.innerHTML = `<img src="${s.photo}"><div class="cap">${esc(s.place || "En route")}</div><div class="dt">${new Date(s.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}</div>`;
+      ui.appendChild(card); await wait(1500); card.remove();
     } else await wait(stepMs);
   }
   if (!stopped) {
@@ -1000,6 +1022,23 @@ function locate(cb, quiet) {
     if (!quiet) toast("Autorise la position : Réglages → Safari → Position");
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
 }
+// Bandeau d'action (ex. « Photo du lieu » après un pointage)
+let actT = null, photoForPt = null;
+function showActbar(txt, label, fn) {
+  $("actTxt").textContent = txt; $("actBtn").textContent = label;
+  $("actBtn").onclick = () => { hideActbar(); fn(); };
+  $("actbar").classList.add("show"); clearTimeout(actT); actT = setTimeout(hideActbar, 7000);
+}
+function hideActbar() { $("actbar").classList.remove("show"); }
+function offerPtPhoto(pt) {
+  showActbar("📍 Point enregistré" + (pt.photo ? " (avec photo)" : ""), pt.photo ? "📷 Changer" : "📷 Photo du lieu", () => { photoForPt = pt; $("ptPhoto").value = ""; $("ptPhoto").click(); });
+}
+$("ptPhoto").onchange = async ev => {
+  const pt = photoForPt; if (!pt || !ev.target.files[0]) return;
+  try { pt.photo = await resizePhoto(ev.target.files[0], 700, 0.65); save(); drawMap(); renderTicket(); toast("📷 Photo ajoutée au point ✓"); }
+  catch (e) { toast(e.message); }
+};
+
 $("btnHere").onclick = () => locate(() => {
   map.setView([me.lat, me.lng], 16);
   const e = active();
@@ -1007,9 +1046,9 @@ $("btnHere").onclick = () => locate(() => {
   e.track = e.track || [];
   const last = e.track[e.track.length - 1];
   const pt = { lat: me.lat, lng: me.lng, t: Date.now(), c: 1, mode: curMode() };
-  if (last && last.c && km(last, pt) < 0.03 && Date.now() - last.t < 300000) return toast("Point déjà enregistré ici");
+  if (last && last.c && km(last, pt) < 0.03 && Date.now() - last.t < 300000) { offerPtPhoto(last); $("actTxt").textContent = "Point déjà enregistré ici"; return; }
   e.track.push(pt); save(); drawMap(); renderTicket();
-  toast("📍 Point enregistré sur le trajet");
+  offerPtPhoto(pt);
   reverseGeocode(pt.lat, pt.lng).then(pl => { if (pl) { pt.place = pl; save(); drawMap(); } }).catch(() => {});
 });
 
@@ -1173,16 +1212,16 @@ $("escDelete").onclick = function () {
 };
 
 // ================= Moments =================
-function resizePhoto(file) {
+function resizePhoto(file, maxPx = 1000, q = 0.72) {
   return new Promise((resolve, reject) => {
     if (!file) return resolve(null);
     const img = new Image();
     img.onload = () => {
-      const r = Math.min(1, 1000 / Math.max(img.width, img.height));
+      const r = Math.min(1, maxPx / Math.max(img.width, img.height));
       const c = document.createElement("canvas");
       c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      resolve(c.toDataURL("image/jpeg", 0.72));
+      resolve(c.toDataURL("image/jpeg", q));
     };
     img.onerror = () => reject(new Error("Photo illisible"));
     img.src = URL.createObjectURL(file);
@@ -1950,7 +1989,7 @@ document.addEventListener("touchend", () => {
 document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
 
 // ================= Version + imports par lien =================
-const VERSION = "v22";
+const VERSION = "v23";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
