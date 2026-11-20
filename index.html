@@ -2937,7 +2937,7 @@ function setSong(o) { o ? localStorage.setItem("esc-song", JSON.stringify(o)) : 
 const songText = o => o ? `« ${o.t} »${o.a ? " – " + o.a : ""}${o.bpm ? ` (tempo ${Math.round(o.bpm)} BPM${o.dur ? `, ${Math.floor(o.dur / 60)}:${String(o.dur % 60).padStart(2, "0")}` : ""})` : ""}` : "";
 function songChip() {
   const o = getSong(); if (!o) return "";
-  return `<div class="song-it on">${o.cover ? `<img src="${esc(o.cover)}" alt="">` : `<button>🎵</button>`}<div class="st"><b>${esc(o.t)}</b><small>${esc(o.a || "")}${o.bpm ? ` · ♩ ${Math.round(o.bpm)} BPM` : ""}</small></div>${o.prev ? `<button data-play="${esc(o.prev)}">▶</button>` : ""}<button id="songClear" aria-label="Retirer">✕</button></div>`;
+  return `<div class="song-it on">${o.cover ? `<img src="${esc(o.cover)}" alt="">` : `<button>🎵</button>`}<div class="st"><b>${esc(o.t)}</b><small>${esc(o.a || "")}${o.bpm ? ` · ♩ ${Math.round(o.bpm)} BPM` : ""}</small></div>${o.prev ? `<button data-play="${esc(o.prev)}" data-alt="${esc(o.prev2 || "")}">▶</button>` : ""}<button id="songClear" aria-label="Retirer">✕</button></div>`;
 }
 let jpN = 0;
 function jsonp(url) {
@@ -2950,28 +2950,38 @@ function jsonp(url) {
   });
 }
 let songAudio = null;
-function playPrev(btn, url) {
-  if (songAudio && songAudio.src === url && !songAudio.paused) { songAudio.pause(); btn.textContent = "▶"; return; }
-  if (songAudio) songAudio.pause();
-  document.querySelectorAll("[data-play]").forEach(b => b.textContent = "▶");
-  songAudio = new Audio(); songAudio.preload = "auto"; songAudio.src = url;
-  songAudio.onerror = () => { btn.textContent = "▶"; toast("Extrait indisponible pour ce titre"); };
-  songAudio.onended = () => btn.textContent = "▶";
-  btn.textContent = "⏳";
-  songAudio.onplaying = () => btn.textContent = "⏸";
-  songAudio.play().catch(() => { btn.textContent = "▶"; toast("Lecture impossible : vérifie le volume"); });
+// Lecture d'un extrait : source principale, puis secours (Apple / Deezer) sur le même lecteur
+function playPrev(btn, url, alt) {
+  if (!songAudio) { songAudio = new Audio(); songAudio.preload = "auto"; songAudio.setAttribute("playsinline", ""); }
+  const a = songAudio;
+  if (a.dataset.cur === url && !a.paused) { a.pause(); btn.textContent = "▶"; return; }
+  a.pause(); document.querySelectorAll("[data-play]").forEach(b => b.textContent = "▶");
+  let tried = [url];
+  const fail = er => {
+    if (alt && !tried.includes(alt)) { tried.push(alt); a.src = alt; a.play().catch(fail); return; }
+    btn.textContent = "▶"; toast("Extrait illisible (" + ((er && er.name) || "source") + ") · essaie un autre titre");
+  };
+  a.onerror = () => fail(a.error ? { name: "erreur " + a.error.code } : null);
+  a.onplaying = () => btn.textContent = "⏸";
+  a.onended = () => btn.textContent = "▶";
+  a.dataset.cur = url; a.src = url; btn.textContent = "⏳";
+  a.play().catch(er => { if (er && er.name === "NotAllowedError") { btn.textContent = "▶"; toast("Touche ▶ encore une fois"); } else fail(er); });
 }
+const normT = t => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\(.*?\)|\[.*?\]|feat.*$/g, "").replace(/[^a-z0-9]/g, "");
 async function songSearch(q) {
   q = (q || "").trim(); if (!q) return toast("Tape un titre ou un artiste");
   $("songRes").innerHTML = `<p class="pos-status">Recherche…</p>`;
   try {
-    const d = await jsonp(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=8`), list = d.data || [];
-    $("songRes").innerHTML = list.length ? list.map((x, i) => `<div class="song-it"><img src="${esc(x.album && x.album.cover_small || "")}" alt=""><div class="st"><b>${esc(x.title)}</b><small>${esc(x.artist && x.artist.name || "")}</small></div>${x.preview ? `<button data-play="${esc(x.preview)}">▶</button>` : ""}<button class="pick" data-song="${i}">Choisir</button></div>`).join("") : `<p class="pos-status">Rien trouvé : essaie un autre mot.</p>`;
+    const [d, it] = await Promise.all([jsonp(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=8`), jsonp(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=25&country=FR`).catch(() => ({}))]);
+    const list = d.data || [], apple = it.results || [];
+    // extrait Apple (m4a, très fiable sur iPhone) quand le même titre existe, sinon extrait Deezer
+    list.forEach(x => { const m = apple.find(y => normT(y.trackName) === normT(x.title) && normT(y.artistName).includes(normT(x.artist && x.artist.name).slice(0, 6))) || apple.find(y => normT(y.trackName) === normT(x.title)); x.apple = m && m.previewUrl; });
+    $("songRes").innerHTML = list.length ? list.map((x, i) => `<div class="song-it"><img src="${esc(x.album && x.album.cover_small || "")}" alt=""><div class="st"><b>${esc(x.title)}</b><small>${esc(x.artist && x.artist.name || "")}</small></div>${x.apple || x.preview ? `<button data-play="${esc(x.apple || x.preview)}" data-alt="${esc(x.apple ? x.preview || "" : "")}">▶</button>` : ""}<button class="pick" data-song="${i}">Choisir</button></div>`).join("") : `<p class="pos-status">Rien trouvé : essaie un autre mot.</p>`;
     bindSongBtns();
     $("songRes").querySelectorAll("[data-song]").forEach(b => b.onclick = async () => {
       const x = list[+b.dataset.song]; b.textContent = "…";
       let bpm = 0; try { const t = await jsonp(`https://api.deezer.com/track/${x.id}`); bpm = +t.bpm || 0; } catch (e) {}
-      setSong({ t: x.title, a: x.artist && x.artist.name, bpm, dur: x.duration, cover: x.album && x.album.cover_small, prev: x.preview });
+      setSong({ t: x.title, a: x.artist && x.artist.name, bpm, dur: x.duration, cover: x.album && x.album.cover_small, prev: x.apple || x.preview, prev2: x.apple ? x.preview : "" });
       if (songAudio) songAudio.pause();
       $("songRes").innerHTML = ""; $("songSel").innerHTML = songChip(); bindSongBtns();
       toast("🎵 " + x.title + (bpm ? ` · ${Math.round(bpm)} BPM` : "") + " ✓");
@@ -2979,7 +2989,7 @@ async function songSearch(q) {
   } catch (er) { $("songRes").innerHTML = `<p class="pos-status">${esc(er.message)} (réseau ?)</p>`; }
 }
 function bindSongBtns() {
-  document.querySelectorAll("#songSel [data-play], #songRes [data-play]").forEach(b => b.onclick = () => playPrev(b, b.dataset.play));
+  document.querySelectorAll("#songSel [data-play], #songRes [data-play]").forEach(b => b.onclick = () => playPrev(b, b.dataset.play, b.dataset.alt));
   const c = $("songClear"); if (c) c.onclick = () => { setSong(null); if (songAudio) songAudio.pause(); $("songSel").innerHTML = ""; };
 }
 async function songFromCapture(f) {
@@ -3667,7 +3677,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v62";
+const VERSION = "v63";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
