@@ -2555,8 +2555,9 @@ STYLE VOULU — fun, coloré, rythmé, qui donne envie de voyager (PAS un diapor
 - Textes : courts (5 mots max), police très grasse (type Montserrat ExtraBold / Anton), blanc avec contour ou ombre noire, apparition « pop » animée, emojis ; garder libres le haut (250 px) et le bas (400 px) pour l'interface Instagram.
 - Versions « carnet » : 2 ou 3 au maximum, comme arrêt sur image sur les moments drôles ; le reste en photos brutes plein écran.
 - Fin : photo du couple + « À suivre… 📍 ${names(e)[1]} ».
-- PAS de musique dans la vidéo (je l'ajouterai sur Instagram) : le rythme à 120 BPM permettra de caler un son tendance.
-- Rends-moi le fichier MP4 (H.264), puis 3 idées de sons Instagram qui iraient bien.`;
+${o.song ? `- MUSIQUE PRÉVUE : « ${o.song} », que j'ajouterai moi-même sur Instagram. Cherche son tempo (BPM) et le moment le plus accrocheur (refrain ou drop), puis cale toutes les coupes sur ses temps à la place des 120 BPM, avec le plan le plus fort pile sur le drop. Laisse la vidéo SANS son. Dis-moi ensuite à quelle seconde du morceau démarrer l'extrait sur Instagram pour que tout tombe juste. Si tu ne trouves pas le BPM, demande-le-moi.
+- Rends-moi le fichier MP4 (H.264).` : `- PAS de musique dans la vidéo (je l'ajouterai sur Instagram) : le rythme à 120 BPM permettra de caler un son tendance.
+- Rends-moi le fichier MP4 (H.264), puis 3 idées de sons Instagram qui iraient bien.`}`;
   const lines = list.map((m, i) => {
     const t = new Date(m.ts);
     return `${String(i + 1).padStart(2, "0")} · ${t.toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
@@ -2795,6 +2796,7 @@ function sendHtml() {
   <div class="pos-status" style="text-align:left;display:flex;justify-content:space-between;align-items:center"><span id="rcPickN">${on}/${ms.length} photos choisies</span><span><button class="link" id="rcAll">Toutes</button> · <button class="link" id="rcNone">Aucune</button></span></div>
   <div class="rc-pick">${ms.map(m => { const img = safeImg(m.photo); return `<button class="${rcOff.has(m.id) ? "off" : ""}" data-pick="${m.id}">${img ? `<img src="${img}" alt="">` : `<span>${m.video ? "🎬" : "📍"}</span>`}<i>✓</i></button>`; }).join("")}</div>
   <label class="pos-status" style="display:flex;gap:8px;align-items:center;text-align:left;margin:6px 0"><input type="checkbox" id="rcCarnet" ${packCarnet() ? "checked" : ""}> Joindre aussi les versions « carnet » (Claude choisit, sinon photos brutes seulement)</label>
+  <input id="rcSong" placeholder="🎵 Son Instagram prévu (titre – artiste), facultatif" value="${esc(localStorage.getItem("esc-song") || "")}" style="width:100%;margin:4px 0 8px">
   <div class="row2"><button class="btn ai-btn" id="rcToReel">🎬 Reel vidéo</button><button class="btn" id="rcToStory">📱 Story</button></div>
   <button class="btn light" id="rcCopyBrief" ${lastBrief ? "" : "hidden"}>📋 Copier le brief (à coller dans Claude)</button>
   <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude.</p>`;
@@ -2812,7 +2814,8 @@ function bindRecapCopy(r) {
     try {
       const { files, fnames } = await packFiles(list);
       const period = recapDay === "all" ? "Tout le séjour" : dayLabel(recapDay);
-      await sharePack(montageBrief(e, list, fnames, { kind, r, period, km: recapKm(e) }), files, (kind === "story" ? "Story · " : "Reel · ") + names(e)[1] + " · " + period);
+      const song = ($("rcSong") && $("rcSong").value.trim()) || ""; localStorage.setItem("esc-song", song);
+      await sharePack(montageBrief(e, list, fnames, { kind, r, period, km: recapKm(e), song }), files, (kind === "story" ? "Story · " : "Reel · ") + names(e)[1] + " · " + period);
     } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
     b.disabled = false; b.textContent = lbl;
   }; });
@@ -3392,7 +3395,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v54";
+const VERSION = "v55";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
