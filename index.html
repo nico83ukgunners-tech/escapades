@@ -602,6 +602,11 @@ function drawMap(fit) {
     L.polyline(line, { color: inkOf(e.id), weight: 4, dashArray: "1 8", lineCap: "round" }).addTo(layer);
     pts.push(...line);
   }
+  if (e && e.track) e.track.filter(p => p.c).forEach(p => {
+    L.circleMarker([p.lat, p.lng], { radius: 6, color: inkOf(e.id), weight: 3, fillColor: "#fff", fillOpacity: 1 })
+      .bindPopup("📍 Pointage · " + new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })).addTo(layer);
+    pts.push([p.lat, p.lng]);
+  });
   state.moments.filter(m => e && m.escId === e.id && m.lat != null).forEach(m => {
     const img = safeImg(m.photo);
     const icon = L.divIcon({ className: "", iconSize: [38, 38], iconAnchor: [19, 19],
@@ -635,7 +640,17 @@ function locate(cb, quiet) {
     if (!quiet) toast("Autorise la position : Réglages → Safari → Position");
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
 }
-$("btnHere").onclick = () => locate(() => map.setView([me.lat, me.lng], 16));
+$("btnHere").onclick = () => locate(() => {
+  map.setView([me.lat, me.lng], 16);
+  const e = active();
+  if (!e) return toast("Crée une escapade pour enregistrer tes points");
+  e.track = e.track || [];
+  const last = e.track[e.track.length - 1];
+  const pt = { lat: me.lat, lng: me.lng, t: Date.now(), c: 1 };
+  if (last && last.c && km(last, pt) < 0.03 && Date.now() - last.t < 300000) return toast("Point déjà enregistré ici");
+  e.track.push(pt); save(); drawMap(); renderTicket();
+  toast("📍 Point enregistré sur le trajet");
+});
 
 async function keepAwake(on) {
   try {
