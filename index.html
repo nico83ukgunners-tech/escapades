@@ -533,6 +533,9 @@ function load() {
   try { const raw = localStorage.getItem(KEY); if (raw) state = { ...state, ...JSON.parse(raw) }; } catch (e) {}
   state.depenses = state.depenses || []; state.people = state.people || ["Nico", "Ashleigh"]; state.rateGBP = state.rateGBP || 1.15;
   if (!active() && state.escapades.length) state.activeId = state.escapades[state.escapades.length - 1].id;
+  // Répare les dépenses importées sans escapade valide (ex. import fait avec une ancienne version)
+  const ids = new Set(state.escapades.map(e => e.id));
+  if (state.activeId) state.depenses.forEach(d => { if (!ids.has(d.escId)) d.escId = state.activeId; });
 }
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -1278,6 +1281,8 @@ $("btnImport").onclick = () => {
       inc.depenses.forEach(d => { if (d && d.escId === "__ACTIVE__") d.escId = state.activeId; });
     }
     state.depenses = merge(state.depenses, inc.depenses);
+    const okIds = new Set(state.escapades.map(e => e.id));
+    state.depenses.forEach(d => { if (!okIds.has(d.escId) && state.activeId) d.escId = state.activeId; });
     if (!active()) state.activeId = (state.escapades[state.escapades.length - 1] || {}).id || null;
     save(); renderAll(true); $("shareText").value = ""; toast("Fusion réussie ✓");
   } catch (e) { toast("Impossible de lire ce code"); }
