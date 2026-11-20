@@ -205,6 +205,19 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .seg .chip{flex:1;text-align:center}
 .amount-in{font-family:var(--mono);font-size:30px;font-weight:700;text-align:center;padding:14px}
 
+.ia-wrap{position:relative}
+.ia-wrap .viewer-img{display:block}
+.ia-ov{position:absolute;inset:0;border-radius:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#fff;text-align:center;background:rgba(30,20,60,.55);overflow:hidden;border-radius:18px}
+.ia-ov::before{content:"";position:absolute;inset:-50%;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.28) 50%,transparent 60%);animation:iaShine 2.2s linear infinite}
+@keyframes iaShine{from{transform:translateX(-40%)}to{transform:translateX(40%)}}
+.ia-ov .sp{width:54px;height:54px;border-radius:50%;border:5px solid rgba(255,255,255,.3);border-top-color:#fff;animation:iaSpin .9s linear infinite;position:relative}
+@keyframes iaSpin{to{transform:rotate(360deg)}}
+.ia-ov b{font-size:19px;position:relative;text-shadow:0 1px 6px rgba(0,0,0,.5)}
+.ia-ov small{font-size:14px;opacity:.9;position:relative;padding:0 18px}
+.ia-ov .bar{width:70%;height:6px;border-radius:6px;background:rgba(255,255,255,.25);position:relative;overflow:hidden}
+.ia-ov .bar i{position:absolute;left:0;top:0;bottom:0;background:#fff;border-radius:6px;transition:width 1s linear}
+.ia-done{animation:iaPop .6s ease}
+@keyframes iaPop{0%{transform:scale(.94);filter:brightness(1.6)}100%{transform:scale(1);filter:none}}
 .ai-btn{background:linear-gradient(135deg,#6b4bd8,#c2185b)!important;color:#fff!important;border:0!important}
 .idea{background:#fff;border-radius:14px;padding:12px 14px;margin:10px 0;border-left:5px solid #6b4bd8}
 .idea b{font-family:var(--display);font-size:17px}
@@ -1822,7 +1835,28 @@ function renderCarnet() {
     </button>`; }).join("")}</div>`;
 }
 
+let viewerId = null, iaJustDone = null;
+const iaBusy = {};
+let iaTick = null;
+const IA_STEPS = ["Envoi de la photo à l'IA…", "L'IA analyse la scène…", "Elle dessine le bandeau et les stickers…", "Ajout des annotations…", "Dernières retouches…", "Encore un peu de patience…"];
+function iaOverlay(id) {
+  clearInterval(iaTick);
+  const w = $("vImgWrap"), t0 = iaBusy[id];
+  if (!w || !t0) return;
+  let ov = w.querySelector(".ia-ov");
+  if (!ov) { ov = document.createElement("div"); ov.className = "ia-ov"; ov.innerHTML = `<div class="sp"></div><b>✨ L'IA dessine ta page</b><small class="st"></small><div class="bar"><i></i></div><small class="tm"></small>`; w.appendChild(ov); }
+  const upd = () => {
+    if (!iaBusy[id] || viewerId !== id || !document.body.contains(ov)) { clearInterval(iaTick); return; }
+    const sec = Math.round((Date.now() - t0) / 1000);
+    ov.querySelector(".st").textContent = IA_STEPS[Math.min(IA_STEPS.length - 1, Math.floor(sec / 12))];
+    ov.querySelector(".bar i").style.width = Math.min(95, sec / 60 * 90) + "%";
+    ov.querySelector(".tm").textContent = sec + " s · tu peux fermer, ça continue";
+    const b = $("vStyleAi"); if (b) { b.disabled = true; b.textContent = "⏳ En cours… " + sec + " s"; }
+  };
+  upd(); iaTick = setInterval(upd, 1000);
+}
 function openViewer(id) {
+  viewerId = id;
   const m = state.moments.find(x => x.id === id); if (!m) return;
   if (m.video) setTimeout(async () => {
     try { const b = await mediaGet(m.video), v = $("vVideo"); if (b && v) v.src = URL.createObjectURL(b); else if (v) v.outerHTML = `<div class="empty">Vidéo introuvable sur ce téléphone</div>`; } catch (e) {}
@@ -1833,7 +1867,7 @@ function openViewer(id) {
     <h3>${esc(m.lieu || "Moment")}</h3>
     ${m.place ? `<div class="pos-status" style="text-align:left;margin-top:4px">📍 ${esc(m.place)}</div>` : ""}
     ${tagsOf(m).length ? `<div class="viewer-tags">${tagsOf(m).map(k => TAGS[k] ? `<span>${TAGS[k][0]} ${TAGS[k][1]}</span>` : "").join("")}</div>` : ""}
-    ${m.video ? `<video class="viewer-video" id="vVideo" controls playsinline ${img ? `poster="${img}"` : ""}></video>` : (img ? `<img class="viewer-img" src="${img}" alt="">` : "")}
+    ${m.video ? `<video class="viewer-video" id="vVideo" controls playsinline ${img ? `poster="${img}"` : ""}></video>` : (img ? `<div class="ia-wrap" id="vImgWrap"><img class="viewer-img${iaJustDone === id ? " ia-done" : ""}" src="${img}" alt=""></div>` : "")}
     ${(m.extra || []).length ? `<div class="gallery">${m.extra.map(u => safeImg(u) ? `<img src="${u}" alt="">` : "").join("")}</div><div class="pos-status" style="text-align:left">${m.extra.length + 1} photos · glisse pour voir</div>` : ""}
     ${m.note ? `<div class="viewer-note">${esc(m.note)}</div>` : ""}
     <button class="btn" id="vEdit">✏️ Modifier (titre, thèmes…)</button>
@@ -1845,7 +1879,21 @@ function openViewer(id) {
   openSheet("sheetView");
   $("vEdit").onclick = () => { closeSheet("sheetView"); openMomentSheet(id); };
   if ($("vStyle")) $("vStyle").onclick = async () => { const b = $("vStyle"); b.disabled = true; b.textContent = "Mise en page…"; try { await styleCarnet(m); openViewer(id); toast("Page de carnet créée ✓"); } catch (er) { toast("Mise en page impossible"); b.disabled = false; } };
-  if ($("vStyleAi")) $("vStyleAi").onclick = function () { confirmTap(this, async () => { const b = $("vStyleAi"); b.disabled = true; b.textContent = "L'IA dessine (30 à 60 s)…"; try { await styleIa(m); openViewer(id); toast("Version illustrée créée ✓"); } catch (er) { toast(er.message || "Illustration impossible"); b.disabled = false; b.textContent = "✨ Version illustrée IA"; } }); };
+  if ($("vStyleAi")) $("vStyleAi").onclick = function () { if (iaBusy[id]) return; confirmTap(this, async () => {
+    iaBusy[id] = Date.now(); iaOverlay(id);
+    const open = () => viewerId === id && $("sheetView").classList.contains("open");
+    try {
+      await styleIa(m); delete iaBusy[id];
+      if (open()) { iaJustDone = id; openViewer(id); iaJustDone = null; }
+      toast("✨ Version illustrée prête ✓" + (open() ? "" : " (« " + (m.lieu || "moment") + " »)"));
+      if (navigator.vibrate) navigator.vibrate(80);
+    } catch (er) {
+      delete iaBusy[id];
+      if (open()) openViewer(id);
+      toast("⚠️ " + (er.name === "AbortError" ? "L'IA a mis trop de temps, réessaie" : (er.message || "Illustration impossible")));
+    }
+  }); };
+  if (iaBusy[id]) iaOverlay(id);
   if ($("vOrig")) $("vOrig").onclick = () => { m.photo = m.orig; delete m.orig; delete m.styled; save(); renderAll(); openViewer(id); toast("Photo d'origine remise"); };
   if ($("vMap")) $("vMap").onclick = () => { closeSheet("sheetView"); show("carte"); setTimeout(() => map.setView([m.lat, m.lng], 17), 120); };
   $("vDel").onclick = function () {
@@ -3184,7 +3232,8 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
       const fd = new FormData();
       fd.append("model", model); fd.append("prompt", prompt); fd.append("size", "1024x1536"); fd.append("quality", "medium");
       fd.append("image", new File([blob], "photo.jpg", { type: blob.type || "image/jpeg" }));
-      const r = await fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { Authorization: "Bearer " + aiCfg.key }, body: fd });
+      const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 180000);
+      let r; try { r = await fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { Authorization: "Bearer " + aiCfg.key }, body: fd, signal: ctl.signal }); } finally { clearTimeout(to); }
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         lastErr = new Error(r.status === 401 ? "Clé refusée : vérifie-la" : r.status === 429 ? "Plus de crédit ou trop de demandes chez OpenAI" : ((j.error && j.error.message) || ("Erreur " + r.status)));
@@ -3197,13 +3246,13 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
       if (!m.orig) m.orig = m.photo;
       m.photo = out; m.styled = "ia"; save(); renderAll();
       return;
-    } catch (er) { lastErr = er; if (er.fatal) break; }
+    } catch (er) { lastErr = er; if (er.fatal || er.name === "AbortError") break; }
   }
   throw lastErr || new Error("Illustration impossible");
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v45";
+const VERSION = "v46";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
