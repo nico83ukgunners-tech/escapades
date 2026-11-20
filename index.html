@@ -1315,7 +1315,7 @@ renderAll(true);
 aiUI();
 
 // ================= Version + imports par lien =================
-const VERSION = "v11";
+const VERSION = "v12";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
@@ -1330,8 +1330,13 @@ function runPreset(forced) {
   const key = forced || location.hash.slice(1);
   if (!PRESETS[key]) return;
   if (!forced) history.replaceState(null, "", location.pathname);
-  const e = active();
-  if (!e) { toast("Crée d'abord l'escapade, puis rouvre le lien"); return; }
+  let e = active();
+  if (!e) {
+    e = { id: uid(), destination: "Milan", nom: "Milan", transport: "train", debut: "2026-11-20", retour: "2026-11-22T14:45", budget: 0, track: [],
+      legs: [{ de: "Menton", a: "Vintimille", transport: "train", quand: "" }, { de: "Vintimille", a: "Milan", transport: "train", quand: "" },
+             { de: "Milan", a: "Vintimille", transport: "train", quand: "" }, { de: "Vintimille", a: "Menton", transport: "train", quand: "" }] };
+    state.escapades.push(e); state.activeId = e.id;
+  }
   let added = 0;
   PRESETS[key].forEach(([id, montant, desc, cat, date, payePar, pour]) => {
     const full = "milan-" + id, ex = state.depenses.find(d => d.id === full);
