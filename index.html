@@ -3441,13 +3441,16 @@ async function showPlacement(e, noMeta) {
     + `<option value="new">➕ Nouveau moment…</option><option value="skip">Ne pas importer</option>`;
   const thumbs = [];
   for (const it of noMeta) thumbs.push(await resizePhoto(it.file, 240, 0.6).catch(() => null));
-  $("batchPlace").innerHTML = `<h4 style="margin:16px 0 4px;font-family:var(--display)">📥 ${noMeta.length} photo(s) sans date ni lieu</h4>
-    <div class="pos-status" style="text-align:left">Souvent des photos reçues par WhatsApp. Dis où les ranger (astuce : demande à Ashleigh de les envoyer en « Document » pour garder l'heure et le lieu).</div>
+  const defT = it => it.day ? it.day + "T12:00" : (it.file.lastModified ? toLocalInput(it.file.lastModified) : toLocalInput(Date.now()));
+  $("batchPlace").innerHTML = `<h4 style="margin:16px 0 4px;font-family:var(--display)">📥 ${noMeta.length} photo(s) à placer</h4>
+    <div class="pos-status" style="text-align:left">Captures d'écran et photos reçues par WhatsApp n'ont ni heure ni lieu : choisis « Nouveau moment » et indique la date, l'heure et le lieu, ou range-les dans un moment existant.</div>
     ${noMeta.map((it, i) => `<div class="place-row">${thumbs[i] ? `<img src="${thumbs[i]}" alt="">` : ""}<div class="pr">
-      <select data-pl="${i}">${opts}</select>
-      <input type="datetime-local" data-plt="${i}" value="${it.day ? it.day + "T12:00" : toLocalInput(Date.now())}" hidden></div></div>`).join("")}
+      ${it.shot ? `<small class="sub">📱 CAPTURE D'ÉCRAN</small>` : ""}
+      <select data-pl="${i}">${opts.replace('value="new"', 'value="new" selected')}</select>
+      <div data-plnew="${i}"><input type="datetime-local" data-plt="${i}" value="${defT(it)}">
+      <input data-plp="${i}" placeholder="📍 Lieu (ex. Duomo, Bar Cin Cin Milano)"></div></div></div>`).join("")}
     <button class="btn" id="placeAll">Ranger ces photos</button>`;
-  $("batchPlace").querySelectorAll("[data-pl]").forEach(sel => sel.onchange = () => { $("batchPlace").querySelector(`[data-plt="${sel.dataset.pl}"]`).hidden = sel.value !== "new"; });
+  $("batchPlace").querySelectorAll("[data-pl]").forEach(sel => sel.onchange = () => { $("batchPlace").querySelector(`[data-plnew="${sel.dataset.pl}"]`).hidden = sel.value !== "new"; });
   $("placeAll").onclick = async () => {
     const btn = $("placeAll"); btn.disabled = true; btn.textContent = "Rangement…";
     let n = 0;
@@ -3458,16 +3461,19 @@ async function showPlacement(e, noMeta) {
         if (v === "new") {
           const ts = new Date($("batchPlace").querySelector(`[data-plt="${i}"]`).value).getTime() || Date.now();
           const photo = await resizePhoto(it.file);
+          const plq = $("batchPlace").querySelector(`[data-plp="${i}"]`).value.trim();
+          let pos = null, place = plq;
+          if (plq) { btn.textContent = "Recherche du lieu…"; try { const g = await geocodePlace(plq); if (g) { pos = g; place = plq; } } catch (er) {} }
           let titre = "Moment · " + new Date(ts).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), tags = [];
           if (hasAi()) {
             btn.textContent = "L'IA écrit le titre…";
             try {
-              const r = await ai([{ role: "user", content: [{ type: "text", text: `Photo d'un voyage (${names(e).join(" → ")}), prise le ${new Date(ts).toLocaleString("fr-FR", { weekday: "long", hour: "2-digit", minute: "2-digit" })}. Titre court, vivant et un peu drôle en français (2 à 5 mots, façon carnet de voyage, sans guillemets ni emoji) et 1 à 3 thèmes parmi : ${Object.entries(TAGS).map(([k, v]) => `${k} (${v[1]})`).join(", ")}. JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: photo } }] }], true);
+              const r = await ai([{ role: "user", content: [{ type: "text", text: `${it.shot ? "Capture d'écran" : "Photo"} d'un voyage (${names(e).join(" → ")}), le ${new Date(ts).toLocaleString("fr-FR", { weekday: "long", hour: "2-digit", minute: "2-digit" })}${place ? " à " + place : ""}. Titre court, vivant et un peu drôle en français (2 à 5 mots, façon carnet de voyage, sans guillemets ni emoji) et 1 à 3 thèmes parmi : ${Object.entries(TAGS).map(([k, v]) => `${k} (${v[1]})`).join(", ")}. JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: photo } }] }], true);
               if (r.titre) titre = String(r.titre).slice(0, 60); tags = (r.themes || []).filter(k => TAGS[k]);
             } catch (er) {}
           }
-          state.moments.push({ id: uid(), escId: e.id, ts, date: toLocalInput(ts).slice(0, 10), lieu: titre, place: "", note: "", photo, extra: [], tags,
-            sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: 0, par: "both", lat: null, lng: null, fps: [it.fp], hs: it.h ? [it.h] : [], auto: true });
+          state.moments.push({ id: uid(), escId: e.id, ts, date: toLocalInput(ts).slice(0, 10), lieu: titre, place, note: "", photo, extra: [], tags,
+            sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: 0, par: "both", lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, fps: [it.fp], hs: it.h ? [it.h] : [], auto: true });
         } else {
           const m = state.moments.find(x => x.id === v); if (!m) continue;
           m.extra = m.extra || []; m.extra.push(await resizePhoto(it.file, 800, 0.68));
@@ -3528,14 +3534,14 @@ async function importBatch(files, force) {
         items.push({ fp, h, video: f, thumb: t.thumb, dur: t.dur, ts: f.lastModified || Date.now(), pos: null });
       } else {
         const x = await readExif(f);
-        if (!force && !x.ts && !x.pos && /png/i.test(f.type)) { shots++; why(f, "capture d'écran"); continue; }              // capture d'écran : ignorée
+        const isShot = !x.ts && !x.pos && /png/i.test(f.type);                            // capture d'écran : à placer à la main (date, heure, lieu)
         const fp = "p|" + f.size + "|" + (x.ts || 0);
         if (!force && (known.has(fp) || known.has(f.name + "|" + f.size))) { skipped++; why(f, "déjà dans le carnet"); continue; }
         const h = await imgHash(f);
         if (!force && isDup(h, x.ts)) { skipped++; why(f, "ressemble à une photo déjà dans le carnet"); continue; }                                    // même image déjà dans le carnet (même compressée)
         known.add(fp); if (h) knownH.push({ h, ts: x.ts || null });
         if (!x.ts && !x.pos && f.lastModified && Date.now() - f.lastModified < 10 * 60000) { x.ts = f.lastModified; if (me) x.pos = { lat: me.lat, lng: me.lng }; }
-        if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f, day: x.day }); why(f, "sans heure ni lieu : à placer ci-dessous", true); continue; }             // ex. photo WhatsApp : à ranger à la main
+        if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f, day: x.day, shot: isShot }); why(f, isShot ? "capture d'écran : choisis date, heure et lieu ci-dessous" : "sans heure ni lieu : à placer ci-dessous", true); continue; }             // ex. photo WhatsApp : à ranger à la main
         const ts = x.ts || f.lastModified || Date.now();
         if (!force && x.ts && (ts < lo || ts > hi)) { outside++; why(f, "prise le " + new Date(ts).toLocaleDateString("fr-FR") + ", hors des dates du séjour"); continue; }                       // photo hors des dates du séjour
         items.push({ fp, h, file: f, ts, pos: x.pos || null });
@@ -3763,7 +3769,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v69";
+const VERSION = "v70";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
