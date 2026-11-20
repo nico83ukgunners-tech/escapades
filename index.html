@@ -164,12 +164,37 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--navy)}
   mask:radial-gradient(circle 6px at 50% 100%,transparent 98%,#000) 0 0/14px 100% repeat-x;padding-bottom:22px}
 textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 
+/* ---------- Dépenses ---------- */
+.balance{background:var(--navy);color:#fff;border-radius:18px;padding:18px;box-shadow:0 10px 30px rgba(27,42,74,.25);position:relative;overflow:hidden}
+.balance small{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--gold)}
+.balance .who{font-family:var(--display);font-size:24px;font-weight:800;margin:6px 0 2px;line-height:1.15}
+.balance .who em{font-style:normal;color:#f1d98a}
+.balance .tot{font-family:var(--mono);font-size:12px;opacity:.8}
+.balance .split{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.balance .split div{background:rgba(255,255,255,.08);border-radius:12px;padding:10px}
+.balance .split b{display:block;font-family:var(--mono);font-size:17px}
+.balance .btn{background:var(--gold);color:var(--navy);margin-top:14px}
+.cats .c{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;margin:8px 0;font-size:14px}
+.cats .bar{height:8px;border-radius:9px;background:var(--line);overflow:hidden;margin-top:4px}
+.cats .bar i{display:block;height:100%;background:var(--red);border-radius:9px}
+.cats .amt{font-family:var(--mono);font-weight:700;font-size:13px}
+.exp{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:#fff;border:0;border-bottom:1px dashed var(--line);padding:12px 4px;font:inherit;color:inherit}
+.exp .ic{width:38px;height:38px;border-radius:10px;background:var(--paper);display:flex;align-items:center;justify-content:center;font-size:19px;flex:0 0 auto}
+.exp b{display:block;font-size:15px}
+.exp .meta{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.exp .amt{margin-left:auto;font-family:var(--mono);font-weight:700;white-space:nowrap}
+.exp.settle .amt{color:var(--green)}
+.explist{background:#fff;border-radius:14px;padding:4px 12px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg .chip{flex:1;text-align:center}
+.amount-in{font-family:var(--mono);font-size:30px;font-weight:700;text-align:center;padding:14px}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   border-top:1px solid var(--line);padding:8px 6px calc(8px + env(safe-area-inset-bottom))}
 .bnav button{background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:2px;
-  font:500 11px var(--sans);color:var(--muted);padding:4px 10px;min-width:64px}
+  font:500 10.5px var(--sans);color:var(--muted);padding:4px 2px;flex:1;min-width:0}
 .bnav button .i{font-size:21px;filter:grayscale(1);opacity:.7}
 .bnav button.on{color:var(--navy)}
 .bnav button.on .i{filter:none;opacity:1}
@@ -237,6 +262,26 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div id="polas"></div>
   </section>
 
+  <!-- ============ DÉPENSES ============ -->
+  <section id="tab-depenses" hidden>
+    <h2><small>QUI DOIT QUOI</small><span id="depTitle">Dépenses</span></h2>
+    <div class="balance" id="balance"></div>
+    <button class="btn red" data-new-dep>+ Ajouter une dépense</button>
+    <h2><small>PAR CATÉGORIE</small>Où part l'argent</h2>
+    <div class="card cats" id="cats"></div>
+    <h2><small>HISTORIQUE</small>Toutes les dépenses</h2>
+    <div id="expList"></div>
+    <h2><small>RÉGLAGES</small>Noms et devise</h2>
+    <div class="card">
+      <div class="row2" style="gap:10px">
+        <div><label class="f">Personne 1</label><input id="p0"></div>
+        <div><label class="f">Personne 2</label><input id="p1"></div>
+      </div>
+      <label class="f">Taux £ → € (à ajuster selon le cours du jour)</label>
+      <input id="rateGBP" type="number" step="0.01" inputmode="decimal">
+    </div>
+  </section>
+
   <!-- ============ SPOTS ============ -->
   <section id="tab-spots" hidden>
     <h2><small>LISTE D'ENVIES</small>Spots à essayer</h2>
@@ -277,6 +322,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 <nav class="bnav">
   <button data-tab="carte" class="on"><span class="i">🗺️</span>Carte</button>
   <button data-tab="carnet"><span class="i">📸</span>Carnet</button>
+  <button data-tab="depenses"><span class="i">💶</span>Dépenses</button>
   <button data-tab="spots"><span class="i">⭐</span>Spots</button>
   <button data-tab="passeport"><span class="i">🛂</span>Passeport</button>
 </nav>
@@ -332,6 +378,37 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
   </div>
 </div>
 
+<!-- ============ FEUILLE : DÉPENSE ============ -->
+<div class="sheet" id="sheetDep">
+  <div class="panel">
+    <div class="grab"></div>
+    <div class="sub">NOUVELLE DÉPENSE</div>
+    <h3>Qui a payé quoi ?</h3>
+    <div class="row2" style="gap:10px;grid-template-columns:2fr 1fr">
+      <input id="depMontant" class="amount-in" type="number" step="0.01" inputmode="decimal" placeholder="0,00">
+      <select id="depDevise" style="font-size:20px"><option value="EUR">€</option><option value="GBP">£</option></select>
+    </div>
+    <label class="f">Quoi</label>
+    <input id="depDesc" placeholder="Pizza, billets musée, apéro…">
+    <label class="f">Catégorie</label>
+    <div class="chips" id="depCats"></div>
+    <label class="f">Payé par</label>
+    <div class="seg" id="depPayeur"></div>
+    <label class="f">Pour qui</label>
+    <div class="seg" id="depPour"></div>
+    <label class="f">Ticket (facultatif)</label>
+    <label class="photo-pick" id="depPick" style="min-height:90px">
+      <span class="big">🧾</span><span>Photo du ticket</span>
+      <input id="depPhoto" type="file" accept="image/*">
+    </label>
+    <button class="btn light" id="depOcr" hidden>🔍 Lire le montant sur le ticket (essai)</button>
+    <label class="f">Date</label>
+    <input id="depDate" type="date">
+    <button class="btn red" id="depSave">Enregistrer la dépense</button>
+    <button class="link" data-close>Annuler</button>
+  </div>
+</div>
+
 <!-- ============ FEUILLE : VOIR UN MOMENT ============ -->
 <div class="sheet" id="sheetView">
   <div class="panel" id="viewBody"></div>
@@ -354,7 +431,8 @@ const KEY = "escapades-v2";
 const INKS = ["#b3362d", "#1f4e8c", "#2e7d4f", "#7b3fa0", "#b8730b", "#0f6b73"];
 const TRANSPORT = { train: "🚆", avion: "✈️", voiture: "🚗", bateau: "⛴️" };
 
-let state = { escapades: [], moments: [], spots: [], activeId: null };
+let state = { escapades: [], moments: [], spots: [], depenses: [], people: ["Nico", "Ashleigh"], rateGBP: 1.15, activeId: null };
+let currentTab = "carte", dep = null;
 let me = null, pick = null, map, layer, pickMarker = null;
 let watchId = null, wakeLock = null;
 let editEscId = null, pendingPhoto = null, flags = { sympa: false, reel: false }, carnetFilter = "tous";
@@ -377,6 +455,7 @@ function names(e) {
 // ================= Stockage =================
 function load() {
   try { const raw = localStorage.getItem(KEY); if (raw) state = { ...state, ...JSON.parse(raw) }; } catch (e) {}
+  state.depenses = state.depenses || []; state.people = state.people || ["Nico", "Ashleigh"]; state.rateGBP = state.rateGBP || 1.15;
   if (!active() && state.escapades.length) state.activeId = state.escapades[state.escapades.length - 1].id;
 }
 function save() {
@@ -389,8 +468,9 @@ let toastT;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 3200); }
 function setPos(t) { document.querySelectorAll(".pos-status").forEach(x => x.textContent = t); }
 
-const TABS = ["carte", "carnet", "spots", "passeport"];
+const TABS = ["carte", "carnet", "depenses", "spots", "passeport"];
 function show(tab) {
+  currentTab = tab;
   TABS.forEach(t => $("tab-" + t).hidden = t !== tab);
   document.querySelectorAll(".bnav button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   if (tab === "carte") setTimeout(() => map.invalidateSize(), 60);
@@ -575,6 +655,7 @@ $("escDelete").onclick = function () {
   confirmTap(this, () => {
     state.escapades = state.escapades.filter(e => e.id !== editEscId);
     state.moments = state.moments.filter(m => m.escId !== editEscId);
+    state.depenses = state.depenses.filter(d => d.escId !== editEscId);
     state.activeId = (state.escapades[state.escapades.length - 1] || {}).id || null;
     save(); closeSheet("sheetEsc"); renderAll(true);
   });
@@ -609,7 +690,7 @@ function openMomentSheet() {
   if (pick) setPos(pickMarker ? "📌 Point choisi sur la carte" : "📍 Position GPS");
   else locate(null, true);
 }
-$("fab").onclick = openMomentSheet;
+$("fab").onclick = () => currentTab === "depenses" ? openDepSheet() : openMomentSheet();
 $("momPhoto").onchange = async ev => {
   try {
     pendingPhoto = await resizePhoto(ev.target.files[0]);
@@ -677,6 +758,149 @@ function openViewer(id) {
   };
 }
 
+// ================= Dépenses (façon Tricount) =================
+const CATS = { resto:["🍝","Resto"], bar:["🍹","Bar / café"], visite:["🏛️","Visite / musée"], transport:["🚆","Transport"],
+  logement:["🏨","Logement"], shopping:["🛍️","Shopping"], courses:["🛒","Courses"], autre:["✨","Autre"] };
+const euro = n => (Math.round(n * 100) / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+const P = i => esc(state.people[i] || (i ? "Personne 2" : "Personne 1"));
+const toEur = d => (Number(d.montant) || 0) * (d.devise === "GBP" ? (Number(d.taux) || state.rateGBP) : 1);
+
+function balance(escId) {
+  const list = state.depenses.filter(d => d.escId === escId);
+  const paid = [0, 0], owed = [0, 0], cats = {};
+  let total = 0;
+  list.forEach(d => {
+    const v = toEur(d);
+    paid[d.payePar] += v;
+    if (d.pour === "both") { owed[0] += v / 2; owed[1] += v / 2; } else owed[d.pour] += v;
+    if (d.cat !== "remboursement") { total += v; cats[d.cat] = (cats[d.cat] || 0) + v; }
+  });
+  const net0 = paid[0] - owed[0];
+  const share = [0, 1].map(i => list.filter(d => d.cat !== "remboursement").reduce((s, d) => s + (d.pour === "both" ? toEur(d) / 2 : d.pour === i ? toEur(d) : 0), 0));
+  let text, debtor = null, amount = 0;
+  if (Math.abs(net0) < 0.01) text = "✓ Vous êtes quittes";
+  else { debtor = net0 > 0 ? 1 : 0; amount = Math.abs(net0); text = `${state.people[debtor]} doit ${euro(amount)} à ${state.people[1 - debtor]}`; }
+  return { list, paid, share, cats, total, text, debtor, amount };
+}
+
+function renderDepenses() {
+  const e = active();
+  $("p0").value = state.people[0]; $("p1").value = state.people[1]; $("rateGBP").value = state.rateGBP;
+  if (!e) { $("balance").innerHTML = `<small>AUCUNE ESCAPADE</small><div class="who">Crée d'abord une escapade</div>`; $("cats").innerHTML = ""; $("expList").innerHTML = ""; return; }
+  $("depTitle").textContent = "Dépenses · " + names(e)[1];
+  const b = balance(e.id);
+  const who = b.debtor === null ? "Vous êtes <em>quittes</em> ✓"
+    : `<em>${P(b.debtor)}</em> doit <em>${euro(b.amount)}</em> à ${P(1 - b.debtor)}`;
+  $("balance").innerHTML = `<small>ÉQUILIBRE</small><div class="who">${who}</div>
+    <div class="tot">Total de l'escapade : ${euro(b.total)}</div>
+    <div class="split">
+      <div><small>${P(0).toUpperCase()} A PAYÉ</small><b>${euro(b.paid[0])}</b><span class="tot">sa part : ${euro(b.share[0])}</span></div>
+      <div><small>${P(1).toUpperCase()} A PAYÉ</small><b>${euro(b.paid[1])}</b><span class="tot">sa part : ${euro(b.share[1])}</span></div>
+    </div>
+    ${b.debtor !== null ? `<button class="btn" id="btnSettle">Marquer comme remboursé</button>` : ""}`;
+  if ($("btnSettle")) $("btnSettle").onclick = function () {
+    confirmTap(this, () => {
+      state.depenses.push({ id: uid(), escId: e.id, montant: Math.round(b.amount * 100) / 100, devise: "EUR", taux: 1,
+        payePar: b.debtor, pour: 1 - b.debtor, cat: "remboursement", desc: "Remboursement", date: today(), ts: Date.now() });
+      save(); renderAll(); toast("Remboursement enregistré ✓");
+    });
+  };
+  const entries = Object.entries(b.cats).sort((x, y) => y[1] - x[1]);
+  const max = entries.length ? entries[0][1] : 1;
+  $("cats").innerHTML = entries.length ? entries.map(([k, v]) => `
+    <div class="c"><span style="font-size:20px">${(CATS[k] || CATS.autre)[0]}</span>
+      <div>${(CATS[k] || CATS.autre)[1]}<div class="bar"><i style="width:${Math.max(4, v / max * 100)}%"></i></div></div>
+      <span class="amt">${euro(v)}</span></div>`).join("")
+    : `<div style="color:var(--muted);font-size:14px">Les catégories s'afficheront ici.</div>`;
+  const list = [...b.list].sort((x, y) => (y.date || "").localeCompare(x.date || "") || y.ts - x.ts);
+  $("expList").innerHTML = list.length ? `<div class="explist">${list.map(d => {
+    const settle = d.cat === "remboursement", c = CATS[d.cat] || ["💸", "Remboursement"];
+    const pour = d.pour === "both" ? "pour les deux" : "pour " + P(d.pour);
+    return `<button class="exp ${settle ? "settle" : ""}" data-dep="${d.id}">
+      <span class="ic">${settle ? "💸" : c[0]}</span>
+      <div><b>${esc(d.desc || c[1])}</b><div class="meta">${P(d.payePar)} a payé · ${settle ? "à " + P(d.pour) : pour} · ${fmt(d.date, {day:"numeric", month:"short"})}${safeImg(d.photo) ? " · 🧾" : ""}</div></div>
+      <span class="amt">${d.devise === "GBP" ? "£" + Number(d.montant).toFixed(2) : euro(d.montant)}</span>
+    </button>`; }).join("")}</div>`
+    : `<div class="empty"><b>Aucune dépense</b>Ajoute un resto, un billet ou un verre : le calcul se fait tout seul.</div>`;
+}
+["p0", "p1"].forEach((id, i) => $(id).onchange = () => { state.people[i] = $(id).value.trim() || state.people[i]; save(); renderAll(); });
+$("rateGBP").onchange = () => { const v = parseFloat($("rateGBP").value); if (v > 0) { state.rateGBP = v; save(); renderAll(); } };
+
+function segButtons(boxId, options, value, onPick) {
+  const box = $(boxId);
+  box.innerHTML = options.map(([v, label]) => `<button class="chip ${String(v) === String(value) ? "on" : ""}" data-v="${v}">${label}</button>`).join("");
+  box.querySelectorAll("button").forEach(b => b.onclick = () => {
+    box.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+    onPick(b.dataset.v === "both" ? "both" : (isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v));
+  });
+}
+function openDepSheet() {
+  const e = active(); if (!e) return openEscSheet();
+  dep = { payePar: 0, pour: "both", cat: "resto", photo: null };
+  $("depMontant").value = ""; $("depDesc").value = ""; $("depDate").value = today(); $("depPhoto").value = "";
+  $("depDevise").value = /london|londres|uk|angleterre|dublin|irlande/i.test(names(e)[1]) && !/dublin|irlande/i.test(names(e)[1]) ? "GBP" : "EUR";
+  $("depPick").querySelectorAll("img").forEach(i => i.remove());
+  $("depPick").querySelectorAll("span").forEach(s => s.hidden = false);
+  $("depOcr").hidden = true;
+  segButtons("depCats", Object.entries(CATS).map(([k, [ic, l]]) => [k, `${ic} ${l}`]), dep.cat, v => dep.cat = v);
+  segButtons("depPayeur", [[0, state.people[0]], [1, state.people[1]]], 0, v => dep.payePar = v);
+  segButtons("depPour", [["both", "Les deux"], [0, state.people[0]], [1, state.people[1]]], "both", v => dep.pour = v);
+  openSheet("sheetDep");
+  setTimeout(() => $("depMontant").focus(), 250);
+}
+$("depPhoto").onchange = async ev => {
+  try {
+    dep.photo = await resizePhoto(ev.target.files[0]);
+    const box = $("depPick");
+    box.querySelectorAll("img").forEach(i => i.remove());
+    box.querySelectorAll("span").forEach(s => s.hidden = true);
+    if (dep.photo) { const im = new Image(); im.src = dep.photo; box.prepend(im); $("depOcr").hidden = false; }
+  } catch (e) { toast(e.message); }
+};
+// Lecture du ticket : Tesseract.js, gratuit, tourne dans le téléphone (chargé seulement si on appuie)
+function loadScript(src) { return new Promise((ok, ko) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = ko; document.head.appendChild(s); }); }
+$("depOcr").onclick = async () => {
+  const btn = $("depOcr"); btn.disabled = true; btn.textContent = "Lecture du ticket… (10-20 s)";
+  try {
+    if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+    const { data } = await Tesseract.recognize(dep.photo, "eng");
+    const lines = data.text.split("\n");
+    const num = l => (l.match(/\d{1,4}[.,]\d{2}(?!\d)/g) || []).map(x => parseFloat(x.replace(",", ".")));
+    let val = null;
+    const tot = lines.filter(l => /tota|importo|sum|amount|payer|à payer|net/i.test(l)).flatMap(num);
+    if (tot.length) val = Math.max(...tot);
+    else { const all = lines.flatMap(num).filter(v => v < 5000); if (all.length) val = Math.max(...all); }
+    if (val) { $("depMontant").value = val.toFixed(2); toast(`Montant lu : ${val.toFixed(2)}. Vérifie-le !`); }
+    else toast("Montant introuvable, saisis-le à la main");
+  } catch (e) { toast("Lecture impossible, saisis le montant à la main"); }
+  btn.disabled = false; btn.textContent = "🔍 Lire le montant sur le ticket (essai)";
+};
+$("depSave").onclick = () => {
+  const e = active(); if (!e) return;
+  const montant = parseFloat(String($("depMontant").value).replace(",", "."));
+  if (!(montant > 0)) return toast("Indique un montant");
+  const devise = $("depDevise").value;
+  state.depenses.push({ id: uid(), escId: e.id, montant: Math.round(montant * 100) / 100, devise, taux: devise === "GBP" ? state.rateGBP : 1,
+    payePar: dep.payePar, pour: dep.pour, cat: dep.cat, desc: $("depDesc").value.trim(), photo: dep.photo,
+    date: $("depDate").value || today(), ts: Date.now() });
+  save(); closeSheet("sheetDep"); renderAll(); show("depenses"); toast("Dépense ajoutée ✓");
+};
+function openDepViewer(id) {
+  const d = state.depenses.find(x => x.id === id); if (!d) return;
+  const c = CATS[d.cat] || ["💸", "Remboursement"], img = safeImg(d.photo);
+  $("viewBody").innerHTML = `<div class="grab"></div>
+    <div class="sub">${esc(fmt(d.date).toUpperCase())} · ${c[0]} ${esc(c[1].toUpperCase())}</div>
+    <h3>${esc(d.desc || c[1])}</h3>
+    <div class="receipt" style="margin-top:10px">${d.devise === "GBP" ? `£${Number(d.montant).toFixed(2)} (≈ ${euro(toEur(d))})` : euro(d.montant)}
+Payé par ${P(d.payePar)}
+${d.cat === "remboursement" ? "Remboursé à " + P(d.pour) : d.pour === "both" ? "Partagé 50/50" : "Pour " + P(d.pour) + " uniquement"}</div>
+    ${img ? `<img class="viewer-img" src="${img}" alt="">` : ""}
+    <button class="link danger" id="vDel">Supprimer cette dépense</button>
+    <button class="link" data-close style="float:right">Fermer</button>`;
+  openSheet("sheetView");
+  $("vDel").onclick = function () { confirmTap(this, () => { state.depenses = state.depenses.filter(x => x.id !== id); save(); closeSheet("sheetView"); renderAll(); }); };
+}
+
 // ================= Spots =================
 function renderSpots() {
   const list = state.spots.map(s => ({ ...s, d: (me && s.lat != null) ? km(me, s) : null }))
@@ -718,6 +942,7 @@ function recapText() {
   const lieux = [...new Set(ms.map(m => m.lieu).filter(Boolean))];
   const sympas = [...new Set(ms.filter(m => m.sympa).map(m => m.lieu || "sans nom"))];
   const reels = [...new Set(ms.filter(m => m.reel).map(m => m.lieu || "sans nom"))];
+  const bal = balance(e.id);
   return `✦ ${names(e).join(" → ").toUpperCase()} ✦
 ${fmt(e.debut)}
 --------------------------------
@@ -728,7 +953,10 @@ Spots faits .... ${state.spots.filter(s => s.fait).length}
 --------------------------------
 📍 Lieux : ${lieux.join(", ") || "—"}
 ⭐ Sympas : ${sympas.join(", ") || "—"}
-🎬 À filmer : ${reels.join(", ") || "—"}`;
+🎬 À filmer : ${reels.join(", ") || "—"}
+--------------------------------
+💶 Dépensé ..... ${euro(bal.total)}
+${bal.text}`;
 }
 $("btnRecap").onclick = async () => {
   try { await navigator.clipboard.writeText(recapText()); toast("Récap copié ✓"); } catch (e) { toast("Copie impossible sur cet appareil"); }
@@ -738,7 +966,7 @@ $("btnRecap").onclick = async () => {
 const encode = o => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
 const decode = s => JSON.parse(decodeURIComponent(escape(atob(s.trim()))));
 $("btnExport").onclick = async () => {
-  const code = "ESC1:" + encode({ escapades: state.escapades, moments: state.moments, spots: state.spots });
+  const code = "ESC1:" + encode({ escapades: state.escapades, moments: state.moments, spots: state.spots, depenses: state.depenses });
   $("shareText").value = code;
   try { await navigator.clipboard.writeText(code); toast("Code copié. Colle-le dans un message"); }
   catch (e) { $("shareText").select(); toast("Sélectionne et copie le code"); }
@@ -752,6 +980,7 @@ $("btnImport").onclick = () => {
     state.escapades = merge(state.escapades, inc.escapades);
     state.moments = merge(state.moments, inc.moments);
     state.spots = merge(state.spots, inc.spots);
+    state.depenses = merge(state.depenses, inc.depenses);
     if (!active()) state.activeId = (state.escapades[state.escapades.length - 1] || {}).id || null;
     save(); renderAll(true); $("shareText").value = ""; toast("Fusion réussie ✓");
   } catch (e) { toast("Impossible de lire ce code"); }
@@ -759,19 +988,21 @@ $("btnImport").onclick = () => {
 
 // ================= Clics délégués =================
 document.addEventListener("click", ev => {
-  const t = ev.target.closest("[data-new-esc],[data-edit-esc],[data-pick-esc],[data-moment],[data-done],[data-del-spot]");
+  if (ev.target.closest("[data-new-dep]")) return openDepSheet();
+  const t = ev.target.closest("[data-dep],[data-new-esc],[data-edit-esc],[data-pick-esc],[data-moment],[data-done],[data-del-spot]");
   if (!t) return;
   if (t.hasAttribute("data-new-esc")) return openEscSheet();
   if (t.dataset.editEsc) return openEscSheet(t.dataset.editEsc);
   if (t.dataset.pickEsc) { state.activeId = t.dataset.pickEsc; save(); renderAll(true); toast("Escapade sélectionnée"); return; }
   if (t.dataset.moment) return openViewer(t.dataset.moment);
+  if (t.dataset.dep) return openDepViewer(t.dataset.dep);
   if (t.dataset.done) { const s = state.spots.find(x => x.id === t.dataset.done); if (s) s.fait = !s.fait; save(); renderAll(); return; }
   if (t.dataset.delSpot) return confirmTap(t, () => { state.spots = state.spots.filter(s => s.id !== t.dataset.delSpot); save(); renderAll(); });
 });
 
 // ================= Rendu global =================
 function renderAll(fit) {
-  renderTicket(); drawMap(fit); renderCarnet(); renderSpots(); renderStamps();
+  renderTicket(); drawMap(fit); renderCarnet(); renderDepenses(); renderSpots(); renderStamps();
   $("recap").textContent = recapText();
 }
 
