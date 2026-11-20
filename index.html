@@ -250,6 +250,13 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .settle-box b{font-family:var(--display);font-size:17px}
 .settle-box .btn{background:var(--green);margin-top:8px}
 
+.pola{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+.pola img{-webkit-touch-callout:none;pointer-events:none}
+.pola.dragging{opacity:.25}
+.pola.drop-before{box-shadow:-7px 0 0 var(--red),0 6px 16px rgba(0,0,0,.12)}
+.pola.drop-after{box-shadow:7px 0 0 var(--red),0 6px 16px rgba(0,0,0,.12)}
+.drag-ghost{position:fixed;z-index:5000;pointer-events:none;transform:rotate(3deg) scale(1.06);box-shadow:0 18px 40px rgba(0,0,0,.35)!important;opacity:.95}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -1081,7 +1088,8 @@ function renderCarnet() {
       Appuie sur le bouton <b style="display:inline;color:var(--red)">+</b> rouge pour coller un premier moment.</div>`;
     return;
   }
-  $("polas").innerHTML = `<div class="polas">${list.map(m => {
+  carnetIds = list.map(m => m.id);
+  $("polas").innerHTML = `<div class="pos-status" style="text-align:left;margin:4px 2px 0">Appui long sur une photo pour la déplacer</div><div class="polas">${list.map(m => {
     const img = safeImg(m.photo), r = ((hash(m.id) % 7) - 3) * 0.8;
     return `<button class="pola" style="--r:${r}deg" data-moment="${m.id}">
       <div class="tags">${tagsOf(m).slice(0, 3).map(k => TAGS[k] ? `<span>${TAGS[k][0]}</span>` : "").join("")}</div>
@@ -1614,7 +1622,7 @@ document.addEventListener("click", ev => {
   if (t.hasAttribute("data-new-esc")) return openEscSheet();
   if (t.dataset.editEsc) return openEscSheet(t.dataset.editEsc);
   if (t.dataset.pickEsc) { state.activeId = t.dataset.pickEsc; save(); renderAll(true); toast("Escapade sélectionnée"); return; }
-  if (t.dataset.moment) return openViewer(t.dataset.moment);
+  if (t.dataset.moment) { if (noClick) return; return openViewer(t.dataset.moment); }
   if (t.dataset.dep) return openDepViewer(t.dataset.dep);
   if (t.dataset.done) { const s = state.spots.find(x => x.id === t.dataset.done); if (s) s.fait = !s.fait; save(); renderAll(); return; }
   if (t.dataset.delSpot) return confirmTap(t, () => { state.spots = state.spots.filter(s => s.id !== t.dataset.delSpot); save(); renderAll(); });
@@ -1631,8 +1639,67 @@ initMap();
 renderAll(true);
 aiUI();
 
+// ================= Déplacer une photo du carnet (appui long + glisser) =================
+let carnetIds = [], noClick = false, dragTimer = null, drg = null;
+function clearDrop() { document.querySelectorAll(".drop-before,.drop-after").forEach(x => x.classList.remove("drop-before", "drop-after")); }
+$("polas").addEventListener("touchstart", e => {
+  const el = e.target.closest(".pola"); if (!el) return;
+  const t = e.touches[0];
+  drg = { el, sx: t.clientX, sy: t.clientY, active: false, target: null, after: false };
+  clearTimeout(dragTimer);
+  dragTimer = setTimeout(() => {
+    if (!drg) return;
+    drg.active = true;
+    const r = el.getBoundingClientRect(), g = el.cloneNode(true);
+    g.classList.add("drag-ghost"); g.style.width = r.width + "px"; g.style.left = r.left + "px"; g.style.top = r.top + "px";
+    drg.ghost = g; drg.dx = drg.sx - r.left; drg.dy = drg.sy - r.top;
+    document.body.appendChild(g); el.classList.add("dragging");
+    try { navigator.vibrate && navigator.vibrate(25); } catch (er) {}
+  }, 450);
+}, { passive: true });
+document.addEventListener("touchmove", e => {
+  if (!drg) return;
+  const t = e.touches[0];
+  if (!drg.active) {
+    if (Math.abs(t.clientX - drg.sx) > 10 || Math.abs(t.clientY - drg.sy) > 10) { clearTimeout(dragTimer); drg = null; }
+    return;
+  }
+  e.preventDefault();
+  drg.ghost.style.left = (t.clientX - drg.dx) + "px"; drg.ghost.style.top = (t.clientY - drg.dy) + "px";
+  if (t.clientY < 90) window.scrollBy(0, -12); else if (t.clientY > window.innerHeight - 150) window.scrollBy(0, 12);
+  clearDrop();
+  const over = document.elementFromPoint(t.clientX, t.clientY), tg = over && over.closest(".pola");
+  if (tg && tg !== drg.el) {
+    const r = tg.getBoundingClientRect();
+    drg.target = tg; drg.after = t.clientX > r.left + r.width / 2;
+    tg.classList.add(drg.after ? "drop-after" : "drop-before");
+  } else drg.target = null;
+}, { passive: false });
+document.addEventListener("touchend", () => {
+  clearTimeout(dragTimer);
+  if (!drg) return;
+  const d = drg; drg = null;
+  if (!d.active) return;
+  noClick = true; setTimeout(() => noClick = false, 400);
+  d.ghost.remove(); d.el.classList.remove("dragging"); clearDrop();
+  if (!d.target) return;
+  const src = d.el.dataset.moment, tgt = d.target.dataset.moment;
+  const order = carnetIds.filter(id => id !== src);
+  order.splice(order.indexOf(tgt) + (d.after ? 1 : 0), 0, src);
+  const asc = carnetOrder === "voyage" ? order : order.slice().reverse();
+  const byId = id => state.moments.find(m => m.id === id);
+  const i = asc.indexOf(src), prev = byId(asc[i - 1]), next = byId(asc[i + 1]), m = byId(src);
+  if (!m) return;
+  if (prev && next) m.ts = prev.ts < next.ts ? Math.round((prev.ts + next.ts) / 2) : prev.ts + 1000;
+  else if (prev) m.ts = prev.ts + 60000;
+  else if (next) m.ts = next.ts - 60000;
+  m.date = toLocalInput(m.ts).slice(0, 10);
+  save(); renderAll(); toast("Photo déplacée ✓");
+});
+document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
+
 // ================= Version + imports par lien =================
-const VERSION = "v18";
+const VERSION = "v19";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
