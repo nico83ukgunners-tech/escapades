@@ -326,6 +326,12 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
   background:var(--navy);color:#fff;border-radius:16px;padding:10px 10px 10px 16px;box-shadow:0 10px 24px rgba(0,0,0,.3);font-size:14px}
 .actbar.show{display:flex;animation:fade .2s}
 .actbar span{flex:1}
+.actbar #actName{background:rgba(255,255,255,.15);color:#fff}
+.pn-list{display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto}
+.pn-list button{display:flex;gap:10px;align-items:center;text-align:left;background:#fff;border:2px solid transparent;border-radius:12px;padding:10px 12px;font:600 15px var(--sans);color:var(--ink,#222)}
+.pn-list button.on{border-color:var(--red,#b3362d)}
+.pn-list button small{display:block;font-weight:400;color:#8a7f72;font-size:12px}
+.pn-list button b{font-size:20px}
 .actbar button{border:0;border-radius:12px;background:var(--gold);color:var(--navy);font:700 14px var(--sans);padding:10px 14px}
 .pt-pin{width:30px;height:30px;border-radius:50%;border:3px solid var(--ink-c);overflow:hidden;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}
 .pt-pin img{width:100%;height:100%;object-fit:cover}
@@ -788,6 +794,21 @@ details.fold .fold-body{padding:0 12px 14px}
 </div>
 
 <!-- ============ FEUILLE : MONTAGE & INSTA ============ -->
+<div class="sheet" id="sheetPtName">
+  <div class="panel">
+    <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
+    <div class="sub">JE SUIS ICI</div>
+    <h3>Où êtes-vous ?</h3>
+    <div class="pos-status" style="text-align:left" id="pnAddr">📍 Recherche de l'adresse…</div>
+    <div class="sub" style="margin-top:10px">AUTOUR DE VOUS · TOUCHE POUR CHOISIR</div>
+    <div class="pn-list" id="pnList"><p class="pos-status">Recherche des bars, restos et lieux proches…</p></div>
+    <label class="sub" style="margin-top:10px;display:block">NOM DU LIEU</label>
+    <input id="pnName" placeholder="Ex. Bar Mario, Duomo, chez Luigi…">
+    <label class="sub" style="margin-top:10px;display:block">ADRESSE</label>
+    <input id="pnPlace" placeholder="Rue, quartier, ville">
+    <button class="btn red" id="pnSave" style="margin-top:12px">Enregistrer</button>
+  </div>
+</div>
 <div class="sheet" id="sheetInsta">
   <div class="panel insta-menu">
     <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
@@ -843,7 +864,7 @@ details.fold .fold-body{padding:0 12px 14px}
 </div>
 
 <div class="toast" id="toast"></div>
-<div class="actbar" id="actbar"><span id="actTxt"></span><button id="actUndo" style="background:rgba(255,255,255,.15);color:#fff">↩︎ Annuler</button><button id="actBtn"></button></div>
+<div class="actbar" id="actbar"><span id="actTxt"></span><button id="actUndo" style="background:rgba(255,255,255,.15);color:#fff">↩︎</button><button id="actName" hidden>🏷️ Nom</button><button id="actBtn"></button></div>
 <input id="ptPhoto" type="file" accept="image/*" hidden>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1171,13 +1192,14 @@ function drawMap(fit) {
   tr.forEach(p => pts.push([p.lat, p.lng]));
   tr.filter(p => p.c).forEach(p => {
     const img = safeImg(p.photo), col = dayColor(e, p.t);
-    const pop = `${img ? `<img src="${img}" style="width:170px;border-radius:8px;display:block;margin-bottom:6px">` : ""}📍 <b>${esc(p.place || "Pointage")}</b><br>${new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}<br><button class="link" data-ptphoto="${p.t}" style="padding:4px 0">📷 ${img ? "Changer la photo" : "Ajouter une photo"}</button><br><button class="link danger" data-ptdel="${p.t}" style="padding:4px 0">🗑️ Supprimer ce point</button>`;
+    const pop = `${img ? `<img src="${img}" style="width:170px;border-radius:8px;display:block;margin-bottom:6px">` : ""}📍 <b>${esc(p.name || p.place || "Pointage")}</b>${p.name && p.place ? `<br><span class="meta">${esc(p.place)}</span>` : ""}<br>${new Date(p.t).toLocaleString("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" })}<br><button class="link" data-ptphoto="${p.t}" style="padding:4px 0">📷 ${img ? "Changer la photo" : "Ajouter une photo"}</button><br><button class="link" data-ptname="${p.t}" style="padding:4px 0">🏷️ ${p.name ? "Changer le nom" : "Nommer le lieu (bar, resto…)"}</button><br><button class="link danger" data-ptdel="${p.t}" style="padding:4px 0">🗑️ Supprimer ce point</button>`;
     const mk = img
       ? L.marker([p.lat, p.lng], { icon: L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 15], html: `<div class="pt-pin" style="--ink-c:${col}"><img src="${img}"></div>` }) })
       : L.circleMarker([p.lat, p.lng], { radius: 6, color: col, weight: 3, fillColor: "#fff", fillOpacity: 1 });
     mk.bindPopup(pop).on("popupopen", () => setTimeout(() => {
       const b = document.querySelector(`[data-ptphoto="${p.t}"]`);
       if (b) b.onclick = () => { photoForPt = p; $("ptPhoto").value = ""; $("ptPhoto").click(); };
+      const nm = document.querySelector(`[data-ptname="${p.t}"]`); if (nm) nm.onclick = () => { map.closePopup(); openPtName(p); };
       const d = document.querySelector(`[data-ptdel="${p.t}"]`);
       if (d) d.onclick = function () { confirmTap(this, () => deletePt(p)); };
     }, 30)).addTo(layer);
@@ -1222,7 +1244,7 @@ function renderJournal() {
   if (!box) return;
   if (!e) { box.innerHTML = ""; return; }
   const items = [
-    ...(e.track || []).filter(p => p.c).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, kind: "pt", img: safeImg(p.photo), title: p.place || "Pointage", sub: "📍 Je suis ici" })),
+    ...(e.track || []).filter(p => p.c).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, kind: "pt", img: safeImg(p.photo), title: ptLabel(p), sub: "📍 Je suis ici" })),
     ...state.moments.filter(m => m.escId === e.id).map(m => ({ t: m.ts, lat: m.lat, lng: m.lng, kind: "mo", id: m.id, img: safeImg(m.photo), title: m.lieu || "Moment", sub: m.place ? "📍 " + m.place : "" }))
   ].sort((a, b) => a.t - b.t);
   if (!items.length) { box.innerHTML = `<div class="empty"><b>Le journal est vide</b>Appuie sur « Je suis ici » à chaque arrêt, ou ajoute un moment avec le bouton +.</div>`; return; }
@@ -1252,7 +1274,7 @@ function renderJournal() {
 let replayStop = null;
 $("btnReplay").onclick = async () => {
   const e = active(); if (!e) return openEscSheet();
-  const pts = (e.track || []).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, pt: 1, photo: safeImg(p.photo), place: p.place }));
+  const pts = (e.track || []).map(p => ({ t: p.t, lat: p.lat, lng: p.lng, pt: 1, photo: safeImg(p.photo), place: p.name ? ptLabel(p) : p.place }));
   const mos = state.moments.filter(m => m.escId === e.id).map(m => ({ t: m.ts, lat: m.lat, lng: m.lng, m }));
   const steps = [...pts, ...mos].sort((a, b) => a.t - b.t);
   if (steps.length < 2) return toast("Il faut au moins 2 points ou moments pour rejouer");
@@ -1359,6 +1381,43 @@ function locate(cb, quiet) {
     if (!quiet) toast("Autorise la position : Réglages → Safari → Position");
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
 }
+// Nom du point : bar/resto/lieu choisi ou tapé, sinon l'adresse détectée
+const ptLabel = p => p.name ? p.name + (p.place ? " · " + p.place.split(",").slice(-1)[0].trim() : "") : (p.place || "Pointage");
+const POI_EMO = { restaurant: "🍽️", cafe: "☕", bar: "🍸", pub: "🍻", fast_food: "🍔", ice_cream: "🍦", bakery: "🥐", pastry: "🥐", hotel: "🏨", hostel: "🏨", museum: "🏛️", attraction: "📸", viewpoint: "🌅", place_of_worship: "⛪", park: "🌳", theatre: "🎭", cinema: "🎬", nightclub: "🪩", wine: "🍷", supermarket: "🛒", clothes: "👗", gallery: "🖼️", monument: "🗿", castle: "🏰", station: "🚉", marketplace: "🧺", gelato: "🍦" };
+async function nearbyPlaces(lat, lng) {
+  const q = `[out:json][timeout:10];(nwr(around:70,${lat},${lng})[name][~"^(amenity|shop|tourism|leisure|historic|railway)$"~"."];);out center 25;`;
+  const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+  if (!r.ok) throw new Error("Lieux indisponibles");
+  const j = await r.json(), skip = /^(bench|waste_basket|parking|bicycle_parking|atm|toilets|post_box|vending_machine|recycling|telephone|charging_station|fuel|parking_entrance|platform|switch|signal|level_crossing|buffer_stop|crossing)$/;
+  return (j.elements || []).map(x => {
+    const t = x.tags || {}, kind = t.amenity || t.tourism || t.shop || t.leisure || t.historic || t.railway || "";
+    const la = x.lat != null ? x.lat : x.center && x.center.lat, ln = x.lon != null ? x.lon : x.center && x.center.lon;
+    return { name: t.name, kind, emo: POI_EMO[kind] || "📍", d: la != null ? km({ lat, lng }, { lat: la, lng: ln }) * 1000 : 999, addr: [t["addr:street"], t["addr:housenumber"]].filter(Boolean).join(" ") };
+  }).filter(x => x.name && !skip.test(x.kind)).sort((a, b) => a.d - b.d).filter((x, i, a) => a.findIndex(y => y.name === x.name) === i).slice(0, 12);
+}
+let pnPt = null;
+function openPtName(pt) {
+  pnPt = pt;
+  $("pnName").value = pt.name || ""; $("pnPlace").value = pt.place || "";
+  $("pnAddr").textContent = pt.place ? "📍 " + pt.place : "📍 Recherche de l'adresse…";
+  $("pnList").innerHTML = `<p class="pos-status">Recherche des bars, restos et lieux proches…</p>`;
+  openSheet("sheetPtName");
+  if (!pt.place) reverseGeocode(pt.lat, pt.lng).then(pl => { if (pl && pnPt === pt) { pt.place = pl; save(); $("pnAddr").textContent = "📍 " + pl; if (!$("pnPlace").value) $("pnPlace").value = pl; } }).catch(() => { $("pnAddr").textContent = "📍 Adresse introuvable (hors ligne ?)"; });
+  nearbyPlaces(pt.lat, pt.lng).then(list => {
+    if (pnPt !== pt) return;
+    $("pnList").innerHTML = list.length ? list.map((x, i) => `<button data-pn="${i}" class="${pt.name === x.name ? "on" : ""}"><b>${x.emo}</b><span>${esc(x.name)}<small>${Math.round(x.d)} m${x.addr ? " · " + esc(x.addr) : ""}</small></span></button>`).join("") : `<p class="pos-status">Aucun lieu trouvé tout près : tape le nom ci-dessous.</p>`;
+    $("pnList").querySelectorAll("[data-pn]").forEach(b => b.onclick = () => {
+      const x = list[+b.dataset.pn]; $("pnName").value = x.name;
+      $("pnList").querySelectorAll("button").forEach(o => o.classList.toggle("on", o === b));
+    });
+  }).catch(() => { if (pnPt === pt) $("pnList").innerHTML = `<p class="pos-status">Recherche des lieux impossible (réseau) : tape le nom ci-dessous.</p>`; });
+}
+$("pnSave").onclick = () => {
+  const pt = pnPt; if (!pt) return;
+  pt.name = $("pnName").value.trim() || undefined; if (!pt.name) delete pt.name;
+  const pl = $("pnPlace").value.trim(); if (pl) pt.place = pl;
+  save(); closeSheet("sheetPtName"); drawMap(); renderTicket(); toast("🏷️ " + ptLabel(pt) + " ✓");
+};
 // Bandeau d'action (ex. « Photo du lieu » après un pointage)
 let actT = null, photoForPt = null;
 function showActbar(txt, label, fn) {
@@ -1366,14 +1425,15 @@ function showActbar(txt, label, fn) {
   $("actBtn").onclick = () => { hideActbar(); fn(); };
   $("actbar").classList.add("show"); clearTimeout(actT); actT = setTimeout(hideActbar, 7000);
 }
-function hideActbar() { $("actbar").classList.remove("show"); }
+function hideActbar() { $("actbar").classList.remove("show"); $("actName").hidden = true; }
 function deletePt(pt) {
   const e = state.escapades.find(x => (x.track || []).includes(pt)); if (!e) return;
   e.track = e.track.filter(p => p !== pt); save(); map.closePopup(); renderAll(); toast("Point supprimé");
 }
 function offerPtPhoto(pt) {
   $("actUndo").hidden = false; $("actUndo").textContent = "↩︎ Annuler"; $("actUndo").onclick = () => { hideActbar(); deletePt(pt); };
-  showActbar("📍 Point enregistré" + (pt.photo ? " (avec photo)" : ""), pt.photo ? "📷 Changer" : "📷 Photo du lieu", () => { photoForPt = pt; $("ptPhoto").value = ""; $("ptPhoto").click(); });
+  showActbar("📍 " + (pt.name ? pt.name : "Point enregistré") + (pt.photo ? " 📷" : ""), pt.photo ? "📷 Changer" : "📷 Photo", () => { photoForPt = pt; $("ptPhoto").value = ""; $("ptPhoto").click(); });
+  $("actName").hidden = false; $("actName").textContent = pt.name ? "🏷️ Nom ✓" : "🏷️ Nom"; $("actName").onclick = () => { hideActbar(); openPtName(pt); };
 }
 $("ptPhoto").onchange = async ev => {
   const pt = photoForPt; if (!pt || !ev.target.files[0]) return;
@@ -3395,7 +3455,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v56";
+const VERSION = "v57";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [

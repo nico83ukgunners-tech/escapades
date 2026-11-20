@@ -8,7 +8,7 @@ self.addEventListener("fetch", e => {
   const r = e.request;
   if (r.method !== "GET") return;
   const u = new URL(r.url);
-  if (/openai|nominatim|open-meteo|frankfurter/.test(u.host)) return;          // données en direct : jamais en cache
+  if (/openai|nominatim|open-meteo|frankfurter|overpass/.test(u.host)) return;          // données en direct : jamais en cache
   if (u.origin === location.origin) {
     e.respondWith(fetch(r).then(res => {
       if (res.ok && !u.search.includes("check=")) { const c = res.clone(); caches.open(V).then(ca => ca.put(new Request(u.origin + u.pathname), c)); }
