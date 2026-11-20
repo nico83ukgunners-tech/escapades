@@ -306,6 +306,10 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .pt-pin{width:30px;height:30px;border-radius:50%;border:3px solid var(--ink-c);overflow:hidden;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}
 .pt-pin img{width:100%;height:100%;object-fit:cover}
 
+.pola .ph{position:relative}
+.vbadge{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.65);color:#fff;font:700 11px var(--mono);border-radius:999px;padding:3px 8px}
+.viewer-video{width:100%;border-radius:12px;display:block;margin-top:10px;background:#000;max-height:60vh}
+
 /* ---------- Navigation du bas ---------- */
 .bnav{position:fixed;left:0;right:0;bottom:0;z-index:1500;display:flex;justify-content:space-around;
   background:rgba(251,247,239,.96);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
@@ -390,6 +394,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <h2><small>CARNET DE BORD</small><span id="carnetTitle">Nos moments</span></h2>
     <div class="filters" id="filters"></div>
     <button class="btn red" id="btnReel">🎬 Mode montage Reel</button>
+    <button class="btn" id="btnMontage">📤 Envoyer à Claude pour le montage</button>
     <div id="polas"></div>
     <div id="story" hidden></div>
   </section>
@@ -526,8 +531,8 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
     <div class="sub" id="momSub">NOUVEAU MOMENT</div>
     <h3>Garder ce moment</h3>
     <label class="photo-pick" id="photoPick">
-      <span class="big">📷</span><span>Ajouter une photo</span>
-      <input id="momPhoto" type="file" accept="image/*">
+      <span class="big">📷</span><span>Ajouter une photo ou une vidéo</span>
+      <input id="momPhoto" type="file" accept="image/*,video/*">
     </label>
     <label class="f">Note</label>
     <textarea id="momNote" rows="3" placeholder="Raconte : ce qu'on a vu, mangé, ri… (le micro du clavier marche aussi 🎙️)"></textarea>
@@ -646,6 +651,7 @@ let me = null, pick = null, map, layer, pickMarker = null;
 let watchId = null, wakeLock = null;
 let editEscId = null, pendingPhoto = null, carnetFilter = "tous";
 let carnetOrder = "voyage";
+let pendingVideo = null, keepVideo = null;
 let carnetIds = [], noClick = false, dragTimer = null, drg = null;
 let momTags = new Set(), momRating = 0, momWho = "both", editMomentId = null;
 const TAGS = {
@@ -682,7 +688,9 @@ function names(e) {
 let dbP = null;
 function idb() {
   if (!dbP) dbP = new Promise((res, rej) => {
-    try { const r = indexedDB.open("escapades", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }
+    try { const r = indexedDB.open("escapades", 2);
+      r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains("kv")) d.createObjectStore("kv"); if (!d.objectStoreNames.contains("media")) d.createObjectStore("media"); };
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }
     catch (e) { rej(e); }
   });
   return dbP;
@@ -690,6 +698,9 @@ function idb() {
 async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
 async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
 let idbReady = false;
+async function mediaPut(k, blob) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("media", "readwrite"); t.objectStore("media").put(blob, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); }
+async function mediaGet(k) { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction("media").objectStore("media").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function mediaDel(k) { try { const db = await idb(); db.transaction("media", "readwrite").objectStore("media").delete(k); } catch (e) {} }
 function light(st) {
   // Copie sans photos (secours léger dans localStorage)
   const strip = o => { const c = { ...o }; delete c.photo; return c; };
@@ -1327,6 +1338,7 @@ function openMomentSheet(editId) {
   const m = editId ? state.moments.find(x => x.id === editId) : null;
   editMomentId = m ? m.id : null;
   pendingPhoto = m ? safeImg(m.photo) : null;
+  pendingVideo = null; keepVideo = m && m.video ? { key: m.video, dur: m.dur } : null;
   momTags = new Set(m ? tagsOf(m) : []); momRating = m ? (m.rating || 0) : 0; momWho = m ? (m.par ?? "both") : "both";
   $("momPlace").value = m ? (m.place || "") : "";
   photoTs = null; photoPos = null; $("momExif").textContent = "";
@@ -1345,9 +1357,43 @@ function openMomentSheet(editId) {
 }
 $("fab").onclick = () => currentTab === "depenses" ? openDepSheet() : openMomentSheet();
 $("momAi").onclick = () => aiTitle(false);
+// Miniature d'une vidéo (première image)
+function videoThumb(file) {
+  return new Promise(resolve => {
+    const v = document.createElement("video"), url = URL.createObjectURL(file);
+    let done = false; const finish = r => { if (done) return; done = true; URL.revokeObjectURL(url); resolve(r); };
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = url;
+    v.onloadeddata = () => { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 3); } catch (e) { finish({ thumb: null, dur: v.duration }); } };
+    v.onseeked = () => {
+      try {
+        const r = Math.min(1, 900 / Math.max(v.videoWidth, v.videoHeight)), c = document.createElement("canvas");
+        c.width = Math.round(v.videoWidth * r); c.height = Math.round(v.videoHeight * r);
+        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        finish({ thumb: c.toDataURL("image/jpeg", 0.7), dur: v.duration });
+      } catch (e) { finish({ thumb: null, dur: v.duration }); }
+    };
+    v.onerror = () => finish({ thumb: null, dur: 0 });
+    setTimeout(() => finish({ thumb: null, dur: v.duration || 0 }), 8000);
+  });
+}
+const fmtDur = d => d ? `${Math.floor(d / 60)}:${String(Math.round(d % 60)).padStart(2, "0")}` : "";
+
 $("momPhoto").onchange = async ev => {
   try {
     const file = ev.target.files[0];
+    if (!file) return;
+    if (file.type.startsWith("video/")) {
+      if (file.size > 400 * 1024 * 1024) return toast("Vidéo trop lourde (plus de 400 Mo) : coupe-la avant");
+      $("momExif").textContent = "Préparation de la vidéo…";
+      const t = await videoThumb(file);
+      pendingVideo = { blob: file, dur: t.dur || 0 }; pendingPhoto = t.thumb;
+      setPhotoPreview(pendingPhoto || "");
+      if (!pendingPhoto) $("photoPick").querySelectorAll("span").forEach(s => s.hidden = false);
+      $("momExif").textContent = `🎥 Vidéo ajoutée${t.dur ? " · " + fmtDur(t.dur) : ""} (${Math.round(file.size / 1048576)} Mo) · vérifie « Quand »`;
+      photoTs = null; photoPos = null;
+      return;
+    }
+    pendingVideo = null; keepVideo = null;
     pendingPhoto = await resizePhoto(file);
     setPhotoPreview(pendingPhoto);
     const x = await readExif(file);
@@ -1391,10 +1437,16 @@ $("momSave").onclick = async () => {
   const tags = [...momTags];
   const whenTs = $("momWhen").value ? new Date($("momWhen").value).getTime() : NaN;
   const ts = !isNaN(whenTs) ? whenTs : Date.now();
-  const data = { ts, date: toLocalInput(ts).slice(0, 10), lieu, place: $("momPlace").value.trim(), note, photo: pendingPhoto, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: momRating, par: momWho };
+  const momId = editMomentId || uid();
+  let video = keepVideo ? keepVideo.key : null, dur = keepVideo ? keepVideo.dur : 0;
+  if (pendingVideo) {
+    try { video = "vid-" + momId + "-" + Date.now(); await mediaPut(video, pendingVideo.blob); dur = pendingVideo.dur; if (keepVideo) mediaDel(keepVideo.key); }
+    catch (er) { btn.disabled = false; return toast("Impossible d'enregistrer la vidéo (mémoire ?)"); }
+  }
+  const data = { video, dur, ts, date: toLocalInput(ts).slice(0, 10), lieu, place: $("momPlace").value.trim(), note, photo: pendingPhoto, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: momRating, par: momWho };
   if (photoPos) Object.assign(data, { lat: photoPos.lat, lng: photoPos.lng });
   if (editMomentId) Object.assign(state.moments.find(x => x.id === editMomentId), data);
-  else state.moments.push({ id: uid(), escId: e.id, lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, ...data });
+  else state.moments.push({ id: momId, escId: e.id, lat: pick ? pick.lat : null, lng: pick ? pick.lng : null, ...data });
   if (!editMomentId) { pick = null; if (pickMarker) { map.removeLayer(pickMarker); pickMarker = null; } }
   const wasEdit = !!editMomentId; editMomentId = null;
   save(); closeSheet("sheetMoment"); renderAll(); show("carnet");
@@ -1426,7 +1478,7 @@ function renderCarnet() {
     const img = safeImg(m.photo), r = ((hash(m.id) % 7) - 3) * 0.8;
     return `<button class="pola" style="--r:${r}deg" data-moment="${m.id}">
       <div class="tags">${tagsOf(m).slice(0, 3).map(k => TAGS[k] ? `<span>${TAGS[k][0]}</span>` : "").join("")}</div>
-      <div class="ph">${img ? `<img src="${img}" alt="">` : "📍"}</div>
+      <div class="ph">${img ? `<img src="${img}" alt="">` : (m.video ? "🎥" : "📍")}${m.video ? `<span class="vbadge">▶ ${fmtDur(m.dur)}</span>` : ""}</div>
       <div class="cap">${esc(m.lieu || m.note || "Moment")}</div>
       ${m.place ? `<div class="pl">📍 ${esc(m.place)}</div>` : ""}
       <div class="dt">${fmt(m.date, {day:"numeric", month:"short"})} · ${new Date(m.ts).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})}${m.rating ? " · " + "❤️".repeat(m.rating) : ""}</div>
@@ -1436,13 +1488,16 @@ function renderCarnet() {
 
 function openViewer(id) {
   const m = state.moments.find(x => x.id === id); if (!m) return;
+  if (m.video) setTimeout(async () => {
+    try { const b = await mediaGet(m.video), v = $("vVideo"); if (b && v) v.src = URL.createObjectURL(b); else if (v) v.outerHTML = `<div class="empty">Vidéo introuvable sur ce téléphone</div>`; } catch (e) {}
+  }, 30);
   const img = safeImg(m.photo);
   $("viewBody").innerHTML = `<div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
     <div class="sub">${esc(fmt(m.date).toUpperCase())} · ${new Date(m.ts).toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"})}${m.rating ? " · " + "❤️".repeat(m.rating) : ""}</div>
     <h3>${esc(m.lieu || "Moment")}</h3>
     ${m.place ? `<div class="pos-status" style="text-align:left;margin-top:4px">📍 ${esc(m.place)}</div>` : ""}
     ${tagsOf(m).length ? `<div class="viewer-tags">${tagsOf(m).map(k => TAGS[k] ? `<span>${TAGS[k][0]} ${TAGS[k][1]}</span>` : "").join("")}</div>` : ""}
-    ${img ? `<img class="viewer-img" src="${img}" alt="">` : ""}
+    ${m.video ? `<video class="viewer-video" id="vVideo" controls playsinline ${img ? `poster="${img}"` : ""}></video>` : (img ? `<img class="viewer-img" src="${img}" alt="">` : "")}
     ${m.note ? `<div class="viewer-note">${esc(m.note)}</div>` : ""}
     <button class="btn" id="vEdit">✏️ Modifier (titre, thèmes…)</button>
     ${m.lat != null ? `<button class="btn light" id="vMap">Voir sur la carte</button>` : ""}
@@ -1452,7 +1507,7 @@ function openViewer(id) {
   $("vEdit").onclick = () => { closeSheet("sheetView"); openMomentSheet(id); };
   if ($("vMap")) $("vMap").onclick = () => { closeSheet("sheetView"); show("carte"); setTimeout(() => map.setView([m.lat, m.lng], 17), 120); };
   $("vDel").onclick = function () {
-    confirmTap(this, () => { state.moments = state.moments.filter(x => x.id !== id); save(); closeSheet("sheetView"); renderAll(); });
+    confirmTap(this, () => { if (m.video) mediaDel(m.video); state.moments = state.moments.filter(x => x.id !== id); save(); closeSheet("sheetView"); renderAll(); });
   };
 }
 
@@ -2033,8 +2088,63 @@ document.addEventListener("touchend", () => {
 });
 document.addEventListener("touchcancel", () => { clearTimeout(dragTimer); if (drg && drg.ghost) drg.ghost.remove(); if (drg) drg.el.classList.remove("dragging"); clearDrop(); drg = null; });
 
+// ================= Pack montage : photos/vidéos numérotées + brief pour Claude =================
+const slug = t => String(t || "moment").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "moment";
+function dataUrlToFile(u, name) {
+  const [h, b] = u.split(","), mime = (h.match(/data:([^;]+)/) || [])[1] || "image/jpeg", bin = atob(b), arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new File([arr], name, { type: mime });
+}
+function montageBrief(e, list, names_) {
+  const st = moveStats(e);
+  const lines = list.map((m, i) => {
+    const t = new Date(m.ts);
+    return `${String(i + 1).padStart(2, "0")} · ${t.toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+   Fichier : ${names_[i] || "(pas de média)"}${m.video ? ` (vidéo ${fmtDur(m.dur)})` : ""}
+   Titre : ${m.lieu || "—"}${m.place ? `\n   Lieu : ${m.place}` : ""}${m.note ? `\n   Note : ${m.note}` : ""}${tagsOf(m).length ? `\n   Thèmes : ${tagsOf(m).map(k => TAGS[k] ? TAGS[k][0] + " " + TAGS[k][1] : k).join(", ")}` : ""}${m.rating ? `\n   Coup de cœur : ${"❤️".repeat(m.rating)}` : ""}`;
+  }).join("\n\n");
+  return `PACK MONTAGE — ${names(e).join(" → ").toUpperCase()}
+${fmt(e.debut, { day: "numeric", month: "long", year: "numeric" })} · ${list.length} moments · 🚆 ${f1(st.transport)} km en transport · 🚶 ${f1(st.pied)} km à pied
+
+DEMANDE À CLAUDE
+Aide-moi à monter un Reel Instagram vertical (9:16) de 30 à 45 secondes avec ces médias, dans l'ordre chronologique ci-dessous.
+- Propose un découpage plan par plan (durée de chaque plan, transitions, rythme).
+- Mets en avant les moments 🎬 (décor Reel) et ❤️❤️❤️ ou plus ; les autres peuvent être plus courts ou coupés.
+- Écris les textes à l'écran (courts, avec le ton des notes), un titre d'ouverture et une fin.
+- Suggère une ambiance musicale et la légende Instagram avec hashtags.
+
+MOMENTS
+${lines}
+`;
+}
+$("btnMontage").onclick = async () => {
+  const e = active(); if (!e) return openEscSheet();
+  const btn = $("btnMontage"); btn.disabled = true; btn.textContent = "Préparation du pack…";
+  try {
+    const list = state.moments.filter(m => m.escId === e.id).sort((a, b) => a.ts - b.ts);
+    if (!list.length) throw new Error("Ajoute d'abord des moments au carnet");
+    const files = [], fnames = [];
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i], t = new Date(m.ts), base = `${String(i + 1).padStart(2, "0")}_${String(t.getHours()).padStart(2, "0")}h${String(t.getMinutes()).padStart(2, "0")}_${slug(m.lieu)}`;
+      let f = null;
+      if (m.video) { const b = await mediaGet(m.video).catch(() => null); if (b) { const ext = (b.type.split("/")[1] || "mov").replace("quicktime", "mov"); f = new File([b], `${base}.${ext}`, { type: b.type || "video/quicktime" }); } }
+      if (!f && safeImg(m.photo)) f = dataUrlToFile(m.photo, base + ".jpg");
+      fnames.push(f ? f.name : ""); if (f) files.push(f);
+    }
+    const brief = montageBrief(e, list, fnames);
+    const all = [new File([brief], "00_brief-montage.txt", { type: "text/plain" }), ...files];
+    if (navigator.canShare && navigator.canShare({ files: all })) {
+      await navigator.share({ files: all, title: "Pack montage · " + names(e)[1], text: "Brief et médias pour le montage du Reel" });
+    } else {
+      try { await navigator.clipboard.writeText(brief); } catch (er) {}
+      toast("Partage de fichiers non disponible : le brief est copié, colle-le dans Claude avec tes photos");
+    }
+  } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
+  btn.disabled = false; btn.textContent = "📤 Envoyer à Claude pour le montage";
+};
+
 // ================= Version + imports par lien =================
-const VERSION = "v24";
+const VERSION = "v25";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
