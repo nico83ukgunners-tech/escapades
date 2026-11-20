@@ -2549,7 +2549,8 @@ ${o.period || fmt(e.debut, { day: "numeric", month: "long", year: "numeric" })} 
 
 DEMANDE À CLAUDE
 ${ask}
-Les fichiers joints sont numérotés dans l'ordre chronologique (le nom indique l'heure et le titre du moment).
+Les fichiers joints sont numérotés dans l'ordre chronologique (le nom indique l'heure et le titre du moment).${packCarnet() ? `
+Chaque photo existe en 2 versions : brute (ex. 03_08h51_titre.jpg) et habillée façon page de carnet (…_carnet.jpg ou …_illustre.jpg, avec titre, note, drapeau et date). Pour chaque plan, choisis la version qui rend le mieux : la brute pour les plans rapides et dynamiques, l'habillée pour les moments forts ou drôles, l'ouverture et la fin. Évite de répéter la même photo sous ses deux formes.` : ""}
 ${recapPart}
 MOMENTS (détail)
 ${lines}
@@ -2566,27 +2567,39 @@ $("btnMontage").onclick = async () => {
   } catch (er) { if (er && er.name !== "AbortError") toast(er.message || "Partage annulé"); }
   btn.disabled = false; btn.textContent = "📤 Envoyer à Claude pour le montage";
 };
-async function packFiles(list) {
+async function packFiles(list, withCarnet = packCarnet()) {
     const files = [], fnames = [];
     for (let i = 0; i < list.length; i++) {
       const m = list[i], t = new Date(m.ts), base = `${String(i + 1).padStart(2, "0")}_${String(t.getHours()).padStart(2, "0")}h${String(t.getMinutes()).padStart(2, "0")}_${slug(m.lieu)}`;
       let f = null;
       if (m.video) { const b = await mediaGet(m.video).catch(() => null); if (b) { const ext = (b.type.split("/")[1] || "mov").replace("quicktime", "mov"); f = new File([b], `${base}.${ext}`, { type: b.type || "video/quicktime" }); } }
-      if (!f && safeImg(m.photo)) f = dataUrlToFile(m.photo, base + ".jpg");
+      const raw = safeImg(m.orig) ? m.orig : m.photo;
+      if (!f && safeImg(raw)) f = dataUrlToFile(raw, base + ".jpg");
       fnames.push(f ? f.name : ""); if (f) files.push(f);
+      // Version habillée (page de carnet ou illustration IA) : Claude choisit laquelle utiliser
+      if (withCarnet && !m.video && safeImg(raw)) {
+        let styled = m.styled && safeImg(m.photo) ? m.photo : null;
+        if (!styled) styled = await styleCarnet(m, true).catch(() => null);
+        if (styled) files.push(dataUrlToFile(styled, `${base}_${m.styled === "ia" ? "illustre" : "carnet"}.jpg`));
+      }
       (m.extra || []).forEach((u, k) => { if (safeImg(u)) files.push(dataUrlToFile(u, `${base}_${String.fromCharCode(98 + k % 25)}.jpg`)); });
     }
     return { files, fnames };
 }
 // Partage : brief texte + médias ; le brief est aussi copié pour pouvoir le coller dans Claude
+const packCarnet = () => localStorage.getItem("esc-pack-carnet") !== "0";
 async function sharePack(brief, files, title) {
+  lastBrief = brief;
   try { await navigator.clipboard.writeText(brief); } catch (er) {}
   const all = [new File([brief], "00_brief-montage.txt", { type: "text/plain" }), ...files];
   if (navigator.canShare && navigator.canShare({ files: all })) {
-    toast("Choisis Claude dans le partage · le brief est aussi copié");
-    await navigator.share({ files: all, title });
-  } else toast("Partage de fichiers non disponible : le brief est copié, colle-le dans Claude avec tes photos");
+    // le texte du brief part dans le message (l'app Claude ignore le fichier .txt)
+    await navigator.share({ files: all, title, text: brief });
+    toast("Envoyé ✓ · si le texte manque, appuie sur « Copier le brief » et colle-le");
+  } else toast("Partage de fichiers non disponible : appuie sur « Copier le brief » et colle-le dans Claude");
+  const cb = $("rcCopyBrief"); if (cb) cb.hidden = false;
 }
+let lastBrief = "";
 
 // ================= Météo (Open-Meteo, gratuit, sans clé) =================
 const WX = c => c === 0 ? "☀️" : c <= 2 ? "🌤️" : c === 3 ? "☁️" : c <= 48 ? "🌫️" : c <= 57 ? "🌦️" : c <= 67 ? "🌧️" : c <= 77 ? "🌨️" : c <= 82 ? "🌧️" : c <= 86 ? "🌨️" : "⛈️";
@@ -2752,10 +2765,14 @@ function recapHtml(r) {
   const lst = (t, arr, k) => arr && arr.length ? `<h4>${t}</h4>${rcList(arr, k, ms)}<button class="link" data-copy="${k}">Copier les textes</button>${k === "plans" && strip.length ? ` · <button class="link" id="rcShare">📤 Envoyer les photos dans l'ordre</button>` : ""}` : "";
   return `<div class="recap-out">${strip.length ? `<h4>📸 LES PHOTOS DE ${recapDay === "all" ? "TOUT LE SÉJOUR" : "LA JOURNÉE"} (${strip.length})</h4><div class="rc-strip">${strip.map(m => `<img src="${m.photo}" alt="" data-rcm="${m.id}">`).join("")}</div>` : ""}${block("JOURNAL", r.journal, "journal")}${lst("STORY · TEXTES À L'ÉCRAN", r.story, "story")}${block("REEL · LÉGENDE", r.legende, "legende")}${block("HASHTAGS", (r.hashtags || []).join(" "), "hashtags")}${lst("REEL · PLANS CONSEILLÉS", r.plans, "plans")}${block("MUSIQUE", r.musique, "musique")}</div>
   <div class="sub" style="margin-top:14px">ENVOYER À CLAUDE POUR LE MONTAGE</div>
+  <label class="pos-status" style="display:flex;gap:8px;align-items:center;text-align:left;margin:6px 0"><input type="checkbox" id="rcCarnet" ${packCarnet() ? "checked" : ""}> Joindre aussi les versions « carnet » (Claude choisit, sinon photos brutes seulement)</label>
   <div class="row2"><button class="btn ai-btn" id="rcToReel">🎬 Reel vidéo</button><button class="btn" id="rcToStory">📱 Story</button></div>
-  <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude. Le texte est aussi copié : colle-le si besoin.</p>`;
+  <button class="btn light" id="rcCopyBrief" ${lastBrief ? "" : "hidden"}>📋 Copier le brief (à coller dans Claude)</button>
+  <p class="pos-status" style="text-align:left">Photos et vidéos de la période + le récap ci-dessus, prêts pour Claude.</p>`;
 }
 function bindRecapCopy(r) {
+  const ck = $("rcCarnet"); if (ck) ck.onchange = () => localStorage.setItem("esc-pack-carnet", ck.checked ? "1" : "0");
+  const cb = $("rcCopyBrief"); if (cb) cb.onclick = async () => { try { await navigator.clipboard.writeText(lastBrief); toast("Brief copié ✓ · colle-le dans Claude"); } catch (er) { toast("Copie impossible"); } };
   ["rcToReel", "rcToStory"].forEach(id => { const b = $(id); if (b) b.onclick = async () => {
     const e = active(), list = recapMoments(e); if (!list.length) return toast("Pas de moments sur cette période");
     const kind = id === "rcToStory" ? "story" : "reel", lbl = b.textContent; b.disabled = true; b.textContent = "Préparation…";
@@ -3246,7 +3263,7 @@ function wrapLines(g, text, maxW, maxLines) {
 function tape(g, x, y, w, h, rot) { g.save(); g.translate(x, y); g.rotate(rot); g.fillStyle = "rgba(230,206,120,.78)"; g.fillRect(-w / 2, -h / 2, w, h); g.restore(); }
 
 // Mise en page gratuite, faite sur le téléphone
-async function styleCarnet(m) {
+async function styleCarnet(m, preview) {
   try { await document.fonts.ready; } catch (e) {}
   const e = state.escapades.find(x => x.id === m.escId) || active();
   const src = m.orig || m.photo, im = await loadImg(src);
@@ -3297,6 +3314,7 @@ async function styleCarnet(m) {
   g.restore(); g.textAlign = "left";
   // lieu en petit
   if (m.place) { g.fillStyle = "#8a7f72"; g.font = "26px 'Space Mono', monospace"; g.fillText(m.place.split(",").slice(0, 2).join(",").slice(0, 40), 260, H - 40); }
+  if (preview) return c.toDataURL("image/jpeg", 0.82);
   if (!m.orig) m.orig = m.photo;
   m.photo = c.toDataURL("image/jpeg", 0.82); m.styled = "carnet";
   save(); renderAll();
@@ -3341,7 +3359,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v51";
+const VERSION = "v52";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
