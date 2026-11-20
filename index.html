@@ -3488,10 +3488,11 @@ function batchUI(done, total, txt) {
   $("batchBar").style.width = Math.round(done / Math.max(1, total) * 100) + "%";
   if (txt) $("batchInfo").textContent = txt;
 }
-async function importBatch(files) {
+async function importBatch(files, force) {
+  const log = [], why = (f, t, ok) => log.push({ f, t, ok });
   const e = active(); if (!e) return openEscSheet();
   $("batchTitle").textContent = "Je range vos photos…"; $("batchDone").hidden = true; batchUI(0, 1, "Lecture de l'heure et du lieu des photos…");
-  openSheet("sheetBatch");
+  openSheet("sheetBatch"); if ($("batchLog")) $("batchLog").innerHTML = ""; $("batchPlace").innerHTML = "";
   const known = new Set(state.moments.flatMap(m => m.fps || []));
   const lo = new Date((e.debut || "1970-01-01") + "T00:00").getTime() - 864e5;
   const hi = e.retour ? new Date(e.retour).getTime() + 864e5 : Infinity;
@@ -3517,32 +3518,32 @@ async function importBatch(files) {
     batchUI(i, files.length * 2, `Lecture ${i + 1} / ${files.length}…`);
     try {
       if (f.type.startsWith("video/")) {
-        if (f.size > 400 * 1024 * 1024) { skipped++; continue; }
+        if (f.size > 400 * 1024 * 1024) { skipped++; why(f, "vidéo trop lourde"); continue; }
         const fp = "v|" + f.size + "|" + (f.lastModified || 0);
-        if (known.has(fp) || known.has(f.name + "|" + f.size)) { skipped++; continue; }
+        if (!force && (known.has(fp) || known.has(f.name + "|" + f.size))) { skipped++; why(f, "déjà dans le carnet"); continue; }
         const t = await videoThumb(f);
         const h = t.thumb ? await imgHash(t.thumb) : null;
-        if (isDup(h)) { skipped++; continue; }
+        if (!force && isDup(h)) { skipped++; why(f, "déjà dans le carnet"); continue; }
         if (h) knownH.push({ h, ts: null });
         items.push({ fp, h, video: f, thumb: t.thumb, dur: t.dur, ts: f.lastModified || Date.now(), pos: null });
       } else {
         const x = await readExif(f);
-        if (!x.ts && !x.pos && /png/i.test(f.type)) { shots++; continue; }              // capture d'écran : ignorée
+        if (!force && !x.ts && !x.pos && /png/i.test(f.type)) { shots++; why(f, "capture d'écran"); continue; }              // capture d'écran : ignorée
         const fp = "p|" + f.size + "|" + (x.ts || 0);
-        if (known.has(fp) || known.has(f.name + "|" + f.size)) { skipped++; continue; }
+        if (!force && (known.has(fp) || known.has(f.name + "|" + f.size))) { skipped++; why(f, "déjà dans le carnet"); continue; }
         const h = await imgHash(f);
-        if (isDup(h, x.ts)) { skipped++; continue; }                                    // même image déjà dans le carnet (même compressée)
+        if (!force && isDup(h, x.ts)) { skipped++; why(f, "ressemble à une photo déjà dans le carnet"); continue; }                                    // même image déjà dans le carnet (même compressée)
         known.add(fp); if (h) knownH.push({ h, ts: x.ts || null });
         if (!x.ts && !x.pos && f.lastModified && Date.now() - f.lastModified < 10 * 60000) { x.ts = f.lastModified; if (me) x.pos = { lat: me.lat, lng: me.lng }; }
-        if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f, day: x.day }); continue; }             // ex. photo WhatsApp : à ranger à la main
+        if (!x.ts && !x.pos) { noMeta.push({ fp, h, file: f, day: x.day }); why(f, "sans heure ni lieu : à placer ci-dessous", true); continue; }             // ex. photo WhatsApp : à ranger à la main
         const ts = x.ts || f.lastModified || Date.now();
-        if (x.ts && (ts < lo || ts > hi)) { outside++; continue; }                       // photo hors des dates du séjour
+        if (!force && x.ts && (ts < lo || ts > hi)) { outside++; why(f, "prise le " + new Date(ts).toLocaleDateString("fr-FR") + ", hors des dates du séjour"); continue; }                       // photo hors des dates du séjour
         items.push({ fp, h, file: f, ts, pos: x.pos || null });
       }
-    } catch (er) { skipped++; }
+    } catch (er) { skipped++; why(f, "illisible"); }
   }
   $("batchRecap").hidden = true; $("batchPlace").innerHTML = "";
-  if (!items.length && !noMeta.length) { $("batchTitle").textContent = "Rien de nouveau"; batchUI(1, 1, `${skipped ? skipped + " déjà dans le carnet" : "Aucune photo lue"}${shots ? ` · ${shots} capture(s) d'écran ignorée(s)` : ""}${outside ? ` · ${outside} hors séjour` : ""}.`); $("batchDone").hidden = false; return; }
+  if (!items.length && !noMeta.length) { $("batchTitle").textContent = "Rien de nouveau"; batchUI(1, 1, `${skipped ? skipped + " déjà dans le carnet" : "Aucune photo lue"}${shots ? ` · ${shots} capture(s) d'écran ignorée(s)` : ""}${outside ? ` · ${outside} hors séjour` : ""}.`); batchLog(log, files); $("batchDone").hidden = false; return; }
   items.sort((a, b) => a.ts - b.ts);
   // 1 bis. Les nouvelles photos prises au même endroit et au même moment qu'un moment existant le rejoignent
   const rest = [];
@@ -3556,6 +3557,7 @@ async function importBatch(files) {
       if (dt < 3 * 60000 && close && dt < bestDt) { best = m; bestDt = dt; }
     }
     if (!best) { rest.push(it); continue; }
+    why(it.file, `ajoutée au moment « ${best.lieu || "moment"} » (prise au même moment)`, true);
     try {
       best.extra = best.extra || []; best.extra.push(await resizePhoto(it.file, 800, 0.68));
       best.xts = best.xts || []; best.xts[best.extra.length - 1] = it.ts;
@@ -3604,6 +3606,7 @@ JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: 
         tags = (r.themes || []).filter(k => TAGS[k]);
       } catch (er) {}
     }
+    g.items.forEach((x, k) => why(x.file || x.video, k ? `avec la photo précédente dans « ${titre} » (rafale)` : `nouveau moment « ${titre} » · ${hm}${place ? " · " + place.split(",")[0] : ""}`, true));
     state.moments.push({ id: uid(), escId: e.id, ts: first.ts, date: toLocalInput(first.ts).slice(0, 10), lieu: titre, place, note: "",
       photo, extra, xts: g.items.slice(1).map(x => x.ts), video, dur, tags, sympa: tags.includes("sympa"), reel: tags.includes("reel"), rating: 0, par: "both",
       lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, fps: g.items.map(x => x.fp), hs: g.items.map(x => x.h).filter(Boolean), auto: true });
@@ -3621,8 +3624,17 @@ JSON : {"titre":"","themes":["cle"]}` }, { type: "image_url", image_url: { url: 
   $("batchTitle").textContent = "Carnet mis à jour ✓";
   batchUI(1, 1, [`${nPhotos} photo(s)/vidéo(s) ajoutée(s)`, made ? `${made} nouveau(x) moment(s)` : "", attached ? `${attached} ajoutée(s) à des moments existants` : "",
     skipped ? `${skipped} déjà dans le carnet` : "", shots ? `${shots} capture(s) d'écran ignorée(s)` : "", outside ? `${outside} hors des dates du séjour` : ""].filter(Boolean).join(" · ") + ".");
+  batchLog(log, files);
   if (noMeta.length) await showPlacement(e, noMeta);
   $("batchDone").hidden = false; $("batchRecap").hidden = false;
+}
+// Détail photo par photo + « importer quand même » pour celles écartées
+function batchLog(log, files) {
+  let box = $("batchLog"); if (!box) { box = document.createElement("div"); box.id = "batchLog"; $("batchPlace").before(box); }
+  const off = log.filter(x => !x.ok && x.f);
+  box.innerHTML = `<details ${off.length ? "open" : ""} style="margin:10px 0"><summary class="sub">📋 DÉTAIL PHOTO PAR PHOTO (${log.length})</summary>${log.map(x => `<div class="place-row" style="padding:6px">${x.f && /^image/.test(x.f.type) ? `<img src="${URL.createObjectURL(x.f)}" alt="" style="width:48px;height:48px">` : `<span style="font-size:24px">🎬</span>`}<div class="pr" style="font-size:13px">${x.ok ? "✅" : "⏭️"} ${esc(x.t)}</div></div>`).join("")}
+  ${off.length ? `<button class="btn light" id="batchForce">⤵︎ Importer quand même ${off.length === 1 ? "la photo écartée" : "les " + off.length + " photos écartées"}</button>` : ""}</details>`;
+  if ($("batchForce")) $("batchForce").onclick = () => importBatch(off.map(x => x.f), true);
 }
 $("batchDone").onclick = () => { closeSheet("sheetBatch"); carnetOrder = "voyage"; show("carnet"); };
 $("batchRecap").onclick = () => { closeSheet("sheetBatch"); show("carnet"); openRecapSheet("jour"); };
@@ -3750,7 +3762,7 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v67";
+const VERSION = "v68";
 $("ver").textContent = VERSION;
 const PRESETS = {
   "milan-tricount": [
