@@ -3806,10 +3806,10 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v73";
+const VERSION = "v74";
 $("ver").textContent = VERSION;
 // Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
-const PRESET_SYNC = 2;
+const PRESET_SYNC = 3; // 3 : on remplace toutes les dépenses de Milan par la liste Tricount (demandé par Nico)
 const PRESETS = {
   "milan-tricount": [
     ["train-ar", 134.00, "Train A/R Ventimiglia-Milan", "transport", "2026-10-29", 1, "both"],
@@ -3838,11 +3838,16 @@ function presetEsc() {
   return e;
 }
 // Synchronise avec Tricount : ajoute ou corrige chaque ligne ; propose de retirer ce qui n'y est pas
-function runPreset(forced) {
+function runPreset(forced, replaceAll) {
   const key = forced || location.hash.slice(1);
   if (!PRESETS[key]) return;
   if (!forced) history.replaceState(null, "", location.pathname);
   const e = presetEsc();
+  if (replaceAll) { // tout effacer pour cette escapade (+ dépenses sans escapade), copie de secours gardée
+    const old = state.depenses.filter(d => d.escId === e.id || !state.escapades.some(x => x.id === d.escId));
+    try { localStorage.setItem("esc-deps-backup", JSON.stringify(old)); } catch (er) {}
+    state.depenses = state.depenses.filter(d => !old.includes(d));
+  }
   let added = 0, fixed = 0;
   PRESETS[key].forEach(([id, montant, desc, cat, date, payePar, pour], k) => {
     const full = "milan-" + id, ex = state.depenses.find(d => d.id === full);
@@ -3862,14 +3867,14 @@ function runPreset(forced) {
     save(); renderAll(); show("depenses");
   }
   const b = balance(e.id);
-  toast(`Tricount ✓ ${added} ajoutée(s), ${fixed} corrigée(s) · ${b.text}`);
+  toast(replaceAll ? `Dépenses remplacées par Tricount (${added}) · ${b.text}` : `Tricount ✓ ${added} ajoutée(s), ${fixed} corrigée(s) · ${b.text}`);
 }
 runPreset();
 window.addEventListener("hashchange", () => runPreset());
 // une fois, automatiquement, après la mise à jour de la liste
-if (+localStorage.getItem("esc-preset-sync") < PRESET_SYNC && state.depenses.some(d => d.id.startsWith("milan-"))) setTimeout(() => runPreset("milan-tricount"), 800);
+if (+localStorage.getItem("esc-preset-sync") < PRESET_SYNC && state.escapades.length) setTimeout(() => runPreset("milan-tricount", true), 800);
 function presetBtn() { $("btnMilanPreset").hidden = !active() || +localStorage.getItem("esc-preset-sync") >= PRESET_SYNC && PRESETS["milan-tricount"].every(([id]) => state.depenses.some(d => d.id === "milan-" + id)); }
-$("btnMilanPreset").onclick = () => { runPreset("milan-tricount"); presetBtn(); };
+$("btnMilanPreset").onclick = () => { runPreset("milan-tricount", true); presetBtn(); };
 presetBtn();
 // Mise à jour automatique : compare la version en ligne et recharge si besoin
 async function checkUpdate() {
