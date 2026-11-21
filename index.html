@@ -516,7 +516,7 @@ details.fold .fold-body{padding:0 12px 14px}
     <h2><small>QUI DOIT QUOI</small><span id="depTitle">Dépenses</span></h2>
     <div class="balance" id="balance"></div>
     <button class="btn red" data-new-dep>+ Ajouter une dépense</button>
-    <button class="btn light" id="btnMilanPreset" hidden>⬇︎ Récupérer les dépenses Tricount « Milan Nov '26 »</button>
+    <button class="btn light" id="btnMilanPreset" hidden>⬇︎ Mettre à jour depuis Tricount « Milan Nov '26 »</button>
     <h2><small>PAR CATÉGORIE</small>Où part l'argent</h2>
     <div class="card cats" id="cats"></div>
     <h2><small>HISTORIQUE</small>Toutes les dépenses</h2>
@@ -3806,41 +3806,69 @@ Style propre, coloré, lisible, format portrait. N'invente pas de noms de person
 }
 
 // ================= Version + imports par lien =================
-const VERSION = "v72";
+const VERSION = "v73";
 $("ver").textContent = VERSION;
+// Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
+const PRESET_SYNC = 2;
 const PRESETS = {
   "milan-tricount": [
     ["train-ar", 134.00, "Train A/R Ventimiglia-Milan", "transport", "2026-10-29", 1, "both"],
-    ["rembt", 172.00, "Hôtel + train", "remboursement", "2026-11-10", 0, 1],
+    ["rembt", 172.00, "Remboursement hôtel + train", "remboursement", "2026-11-10", 0, 1],
     ["hotel", 210.00, "Hôtel Milan", "logement", "2026-11-11", 1, "both"],
     ["taxes", 35.00, "Taxes hôtel sur place", "logement", "2026-11-20", 1, "both"],
-    ["ter", 10.40, "TER Menton-Vintimille", "transport", "2026-11-20", 1, "both"]
+    ["ter", 10.40, "TER Menton-Vintimille", "transport", "2026-11-20", 1, "both"],
+    ["sandw", 18.00, "Sandwiches et cafés Ventimiglia", "bar", "2026-11-20", 1, "both"],
+    ["biere", 19.00, "Bière", "bar", "2026-11-20", 0, "both"],
+    ["cocktail2", 20.00, "Cocktail", "bar", "2026-11-20", 0, "both"],
+    ["noel", 10.00, "Bière de Noël et vin chaud", "bar", "2026-11-20", 0, "both"],
+    ["cocktail1", 18.00, "Cocktail", "bar", "2026-11-20", 0, "both"],
+    ["repas", 57.50, "Repas", "resto", "2026-11-20", 0, "both"],
+    ["drinks", 17.00, "Drinks", "bar", "2026-11-20", 1, "both"],
+    ["pizza", 9.30, "Pizza slices", "resto", "2026-11-20", 1, "both"]
   ]
 };
-function runPreset(forced) {
-  const key = forced || location.hash.slice(1);
-  if (!PRESETS[key]) return;
-  if (!forced) history.replaceState(null, "", location.pathname);
-  let e = active();
+function presetEsc() {
+  let e = state.escapades.find(x => state.depenses.some(d => d.id.startsWith("milan-") && d.escId === x.id)) || state.escapades.find(x => /milan/i.test(x.destination || x.nom || "")) || active();
   if (!e) {
     e = { id: uid(), destination: "Milan", nom: "Milan", transport: "train", debut: "2026-11-20", retour: "2026-11-22T14:45", budget: 0, track: [],
       legs: [{ de: "Menton", a: "Vintimille", transport: "train", quand: "" }, { de: "Vintimille", a: "Milan", transport: "train", quand: "" },
              { de: "Milan", a: "Vintimille", transport: "train", quand: "" }, { de: "Vintimille", a: "Menton", transport: "train", quand: "" }] };
     state.escapades.push(e); state.activeId = e.id;
   }
-  let added = 0;
-  PRESETS[key].forEach(([id, montant, desc, cat, date, payePar, pour]) => {
+  return e;
+}
+// Synchronise avec Tricount : ajoute ou corrige chaque ligne ; propose de retirer ce qui n'y est pas
+function runPreset(forced) {
+  const key = forced || location.hash.slice(1);
+  if (!PRESETS[key]) return;
+  if (!forced) history.replaceState(null, "", location.pathname);
+  const e = presetEsc();
+  let added = 0, fixed = 0;
+  PRESETS[key].forEach(([id, montant, desc, cat, date, payePar, pour], k) => {
     const full = "milan-" + id, ex = state.depenses.find(d => d.id === full);
-    if (ex) { ex.escId = e.id; return; }
-    state.depenses.push({ id: full, escId: e.id, montant, devise: "EUR", taux: 1, payePar, pour, cat, desc, date, ts: Date.now() + added });
+    if (ex) {
+      if (ex.montant !== montant || ex.payePar !== payePar || ex.pour !== pour || ex.desc !== desc || ex.escId !== e.id) fixed++;
+      Object.assign(ex, { escId: e.id, montant, devise: "EUR", taux: 1, payePar, pour, cat, desc, date });
+      return;
+    }
+    state.depenses.push({ id: full, escId: e.id, montant, devise: "EUR", taux: 1, payePar, pour, cat, desc, date, ts: Date.now() - k * 1000 });
     added++;
   });
+  localStorage.setItem("esc-preset-sync", PRESET_SYNC);
   save(); renderAll(); show("depenses");
-  toast(added ? `${added} dépenses ajoutées ✓` : "Dépenses déjà présentes, rattachées à cette escapade ✓");
+  const extra = state.depenses.filter(d => d.escId === e.id && !d.id.startsWith("milan-"));
+  if (extra.length && confirm(`${extra.length} dépense(s) saisie(s) dans l'app ne sont pas dans Tricount :\n\n${extra.map(d => "• " + (d.desc || CATS[d.cat] && CATS[d.cat][1] || "Dépense") + " — " + euro(toEur(d))).join("\n")}\n\nLes retirer pour que tout corresponde à Tricount ?`)) {
+    state.depenses = state.depenses.filter(d => !extra.includes(d));
+    save(); renderAll(); show("depenses");
+  }
+  const b = balance(e.id);
+  toast(`Tricount ✓ ${added} ajoutée(s), ${fixed} corrigée(s) · ${b.text}`);
 }
 runPreset();
 window.addEventListener("hashchange", () => runPreset());
-function presetBtn() { $("btnMilanPreset").hidden = !active() || state.depenses.some(d => d.id === "milan-hotel" && d.escId === state.activeId); }
+// une fois, automatiquement, après la mise à jour de la liste
+if (+localStorage.getItem("esc-preset-sync") < PRESET_SYNC && state.depenses.some(d => d.id.startsWith("milan-"))) setTimeout(() => runPreset("milan-tricount"), 800);
+function presetBtn() { $("btnMilanPreset").hidden = !active() || +localStorage.getItem("esc-preset-sync") >= PRESET_SYNC && PRESETS["milan-tricount"].every(([id]) => state.depenses.some(d => d.id === "milan-" + id)); }
 $("btnMilanPreset").onclick = () => { runPreset("milan-tricount"); presetBtn(); };
 presetBtn();
 // Mise à jour automatique : compare la version en ligne et recharge si besoin
