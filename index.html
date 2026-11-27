@@ -857,6 +857,7 @@ details.fold .fold-body{padding:0 12px 14px}
   <div class="panel">
     <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
     <div class="sub">PROGRAMME</div>
+    <div class="pl-tabs" id="planEsc"></div>
     <h3 id="planH">Notre circuit</h3>
     <div class="pl-tabs" id="planTabs"></div>
     <div id="planBody"></div>
@@ -3955,6 +3956,8 @@ function renderPlan() {
   planCur = p.id;
   const pts = planPts(p), T = planTimes(p), S = planSummary(p), off = p.hotel && p.hotel.lat != null ? 1 : 0;
   $("planH").textContent = `${names(e)[names(e).length - 1]} · ${p.titre}`;
+  $("planEsc").innerHTML = state.escapades.length > 1 ? state.escapades.map(x => `<button class="${x.id === e.id ? "on" : ""}" data-pe="${x.id}">${esc(names(x)[names(x).length - 1])}</button>`).join("") : "";
+  $("planEsc").querySelectorAll("[data-pe]").forEach(b => b.onclick = () => { state.activeId = b.dataset.pe; planCur = null; save(); renderAll(); openPlan(); });
   $("planTabs").innerHTML = list.map(x => `<button class="${x.id === p.id ? "on" : ""}" data-pl="${x.id}">${new Date(x.date + "T12:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</button>`).join("") + `<button data-pl="new">＋ Jour</button>`;
   const legHtml = i => { const l = p.legs && p.legs[i]; if (!l) return `<div class="pl-leg">·····</div>`;
     return `<div class="pl-leg ${l.mode}">${l.mode === "pied" ? `🚶 ${dur(l.min)} · ${f1(l.km)} km` : `${l.ico || "🚇"} ${dur(l.min)} · ${esc(l.label || "transport")}`}</div>`; };
@@ -4127,6 +4130,13 @@ drawMap = function (...a) {
 };
 
 // ---------- Londres : séjour du 30 nov. au 3 déc. 2026 + circuit des illuminations de Noël ----------
+(function fixLondon() {
+  if (localStorage.getItem("esc-fix-london")) return;
+  localStorage.setItem("esc-fix-london", "1");
+  const lo = state.escapades.find(x => /londres|london/i.test((x.destination || "") + (x.nom || "")));
+  state.plans = (state.plans || []).filter(p => p.stops.length || (lo && p.escId === lo.id));
+  if (lo) { state.activeId = lo.id; save(); setTimeout(() => renderAll(true), 0); }
+})();
 (function seedLondon() {
   if (localStorage.getItem("esc-seed-london")) return;
   localStorage.setItem("esc-seed-london", "1");
@@ -4135,7 +4145,7 @@ drawMap = function (...a) {
     e = { id: uid(), destination: "Londres", nom: "Londres", transport: "avion", debut: "2026-11-30", retour: "2026-12-03T18:00", budget: 0, track: [], legs: [] };
     state.escapades.push(e);
   }
-  if (active() && active().debut && active().retour && active().retour.slice(0, 10) < today()) state.activeId = e.id; // l'escapade active est finie → Londres
+  state.activeId = e.id;
   state.plans = state.plans || [];
   if (!state.plans.some(p => p.escId === e.id)) state.plans.push({
     id: uid(), escId: e.id, titre: "Illuminations de Noël", date: "2026-12-01", depart: "16:00", retour: true,
@@ -4150,11 +4160,11 @@ drawMap = function (...a) {
       { name: "Covent Garden", wiki: "Covent Garden", lat: 51.5117, lng: -0.1229, visit: 45, note: "Le grand final : l'immense sapin et le marché couvert." }
     ], legs: []
   });
-  save();
+  save(); setTimeout(() => renderAll(true), 0);
 })();
 
 // ================= Version + imports par lien =================
-const VERSION = "v76";
+const VERSION = "v77";
 $("ver").textContent = VERSION;
 // Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
 const PRESET_SYNC = 3; // 3 : on remplace toutes les dépenses de Milan par la liste Tricount (demandé par Nico)
