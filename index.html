@@ -899,6 +899,7 @@ details.fold .fold-body{padding:0 12px 14px}
       <button id="qSpot"><span>⭐</span>Spot à essayer</button>
       <button id="qPas"><span>🩺</span>Pas du jour</button>
       <button class="wide" id="qBatch"><span>🗂️</span>Importer les photos de la journée</button>
+      <button class="wide" id="qPlan"><span>🗺️</span>Programme du jour &amp; circuit animé</button>
     </div>
     <input id="batchFiles" type="file" accept="image/*,video/*" multiple hidden>
   </div>
@@ -4017,6 +4018,7 @@ function renderPlan() {
   $("plDel").onclick = function () { confirmTap(this, () => { state.plans = state.plans.filter(x => x !== P); planCur = null; save(); if (plansOf(e).length) renderPlan(); else closeSheet("sheetPlan"); }); };
 }
 $("btnPlan").onclick = () => openPlan();
+$("qPlan").onclick = () => { closeSheet("sheetQuick"); openPlan(); };
 
 async function planAi(p, theme) {
   const e = active(), b = $("plAi"); b.disabled = true; b.textContent = "L'IA prépare le circuit…";
@@ -4152,7 +4154,7 @@ drawMap = function (...a) {
 })();
 
 // ================= Version + imports par lien =================
-const VERSION = "v75";
+const VERSION = "v76";
 $("ver").textContent = VERSION;
 // Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
 const PRESET_SYNC = 3; // 3 : on remplace toutes les dépenses de Milan par la liste Tricount (demandé par Nico)
