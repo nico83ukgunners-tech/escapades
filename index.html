@@ -356,6 +356,7 @@ textarea.code{font-family:var(--mono);font-size:11px;height:90px}
 .rc-strip{display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px;white-space:normal;-webkit-overflow-scrolling:touch}
 .rc-strip img{width:64px;height:64px;object-fit:cover;border-radius:8px;flex:0 0 auto;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .pl-tabs{display:flex;gap:6px;overflow-x:auto;margin:6px 0 10px}.pl-tabs button{flex:0 0 auto;border:1.5px solid #1b2a4a;background:#fff;border-radius:20px;padding:6px 12px;font:600 13px var(--sans)}.pl-tabs button.on{background:#1b2a4a;color:#fff}
+.pl-exp{background:#fff;border-radius:14px;padding:12px;margin-bottom:12px}.pl-exp select{width:100%;margin-top:3px}
 .pl-sum{font:600 13px var(--mono,monospace);color:#6b5e50;margin-bottom:8px}
 .pl-f{display:block;font:600 11px var(--sans);color:#8a7f72;text-transform:uppercase;letter-spacing:.06em}.pl-f input{margin-top:3px;width:100%}
 .pl-list{margin:10px 0}
@@ -858,6 +859,7 @@ details.fold .fold-body{padding:0 12px 14px}
     <div class="grab"></div><button class="sheet-x" data-close aria-label="Fermer">✕</button>
     <div class="sub">PROGRAMME</div>
     <div class="pl-tabs" id="planEsc"></div>
+    <div id="planExp"></div>
     <h3 id="planH">Notre circuit</h3>
     <div class="pl-tabs" id="planTabs"></div>
     <div id="planBody"></div>
@@ -3858,7 +3860,9 @@ const WALK_MAX = 2.3;                       // au-delà (km), on propose les tra
 const inLondon = p => p.lat > 51.25 && p.lat < 51.75 && p.lng > -0.6 && p.lng < 0.35;
 const hm = m => { m = Math.round(m); return `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
 const dur = m => m >= 60 ? `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, "0")}` : `${Math.round(m)} min`;
-let planCur = null;
+let planCur = null, planCtx = null, exploreOpen = false;
+// « Explorer une ville » : circuits sans escapade, rangés à part (state.ideas)
+const planE = () => (planCtx && (state.ideas || []).find(x => x.id === planCtx)) || active();
 const plansOf = e => (state.plans || []).filter(p => e && p.escId === e.id).sort((a, b) => (a.date + a.depart).localeCompare(b.date + b.depart));
 function planPts(p) {
   const pts = [];
@@ -3945,20 +3949,36 @@ function newPlan(e) {
   (state.plans = state.plans || []).push(p); save(); return p;
 }
 function openPlan(id) {
-  const e = active(); if (!e) return openEscSheet();
+  const e = planE();
+  if (!e) { exploreOpen = true; renderPlan(); return openSheet("sheetPlan"); }
   let list = plansOf(e);
   if (!list.length) list = [newPlan(e)];
   planCur = id || (list.find(p => p.id === planCur) ? planCur : (list.find(p => p.date >= today()) || list[0]).id);
   renderPlan(); openSheet("sheetPlan");
 }
 function renderPlan() {
-  const e = active(), list = plansOf(e), p = list.find(x => x.id === planCur) || list[0]; if (!p) return;
+  const e = planE(), list = e ? plansOf(e) : [], p = list.find(x => x.id === planCur) || list[0];
+  const chips = state.escapades.map(x => `<button class="${!planCtx && e && x.id === e.id ? "on" : ""}" data-pe="${x.id}">${esc(names(x)[names(x).length - 1])}</button>`).join("")
+    + (state.ideas || []).map(x => `<button class="${planCtx === x.id ? "on" : ""}" data-pi="${x.id}">🌍 ${esc(x.destination)}</button>`).join("")
+    + `<button class="${exploreOpen ? "on" : ""}" id="plExplore">🌍 Explorer une ville</button>`;
+  $("planEsc").innerHTML = chips;
+  $("planEsc").querySelectorAll("[data-pe]").forEach(b => b.onclick = () => { planCtx = null; exploreOpen = false; state.activeId = b.dataset.pe; planCur = null; save(); renderAll(); openPlan(); });
+  $("planEsc").querySelectorAll("[data-pi]").forEach(b => b.onclick = () => { planCtx = b.dataset.pi; exploreOpen = false; planCur = null; openPlan(); });
+  $("plExplore").onclick = () => { exploreOpen = !exploreOpen; renderPlan(); };
+  $("planExp").innerHTML = exploreOpen ? `<div class="pl-exp">
+    <div class="sub">🌍 EXPLORER UNE VILLE</div>
+    <input id="exCity" placeholder="Ville, pays (ex. Barcelone, Espagne)">
+    <div class="row2" style="margin-top:6px"><label class="pl-f">Jours<select id="exDays">${[1, 2, 3, 4].map(n => `<option>${n}</option>`).join("")}</select></label>
+    <label class="pl-f">Départ<input type="time" id="exDep" value="10:00"></label></div>
+    <input id="exTheme" placeholder="Envies (facultatif) : incontournables, Noël, food, vue…" style="margin-top:6px">
+    <button class="btn red" id="exGo" style="margin-top:8px">Créer le circuit</button>
+    <div class="pos-status" id="exInfo" style="text-align:left">${hasAi() ? "L'IA choisit les lieux à voir, jour par jour, dans le meilleur ordre." : "Sans clé IA : les lieux les plus connus autour du centre (1 jour)."}</div></div>` : "";
+  if (exploreOpen) $("exGo").onclick = () => exploreCity($("exCity").value.trim(), +$("exDays").value, $("exTheme").value.trim(), $("exDep").value || "10:00");
+  if (!p) { $("planH").textContent = "Programme"; $("planTabs").innerHTML = ""; $("planBody").innerHTML = exploreOpen ? "" : `<p class="pos-status">Aucun programme.</p>`; return; }
   planCur = p.id;
   const pts = planPts(p), T = planTimes(p), S = planSummary(p), off = p.hotel && p.hotel.lat != null ? 1 : 0;
   $("planH").textContent = `${names(e)[names(e).length - 1]} · ${p.titre}`;
-  $("planEsc").innerHTML = state.escapades.length > 1 ? state.escapades.map(x => `<button class="${x.id === e.id ? "on" : ""}" data-pe="${x.id}">${esc(names(x)[names(x).length - 1])}</button>`).join("") : "";
-  $("planEsc").querySelectorAll("[data-pe]").forEach(b => b.onclick = () => { state.activeId = b.dataset.pe; planCur = null; save(); renderAll(); openPlan(); });
-  $("planTabs").innerHTML = list.map(x => `<button class="${x.id === p.id ? "on" : ""}" data-pl="${x.id}">${new Date(x.date + "T12:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</button>`).join("") + `<button data-pl="new">＋ Jour</button>`;
+  $("planTabs").innerHTML = list.map((x, i) => `<button class="${x.id === p.id ? "on" : ""}" data-pl="${x.id}">${e.idea ? "Jour " + (i + 1) : new Date(x.date + "T12:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })}</button>`).join("") + `<button data-pl="new">＋ Jour</button>`;
   const legHtml = i => { const l = p.legs && p.legs[i]; if (!l) return `<div class="pl-leg">·····</div>`;
     return `<div class="pl-leg ${l.mode}">${l.mode === "pied" ? `🚶 ${dur(l.min)} · ${f1(l.km)} km` : `${l.ico || "🚇"} ${dur(l.min)} · ${esc(l.label || "transport")}`}</div>`; };
   $("planBody").innerHTML = `
@@ -3966,7 +3986,7 @@ function renderPlan() {
     <button class="btn red" id="planPlay1">▶ Jouer le circuit animé</button>
     <div class="row2" style="margin-top:8px">
       <label class="pl-f">Titre<input id="plTitre" value="${esc(p.titre)}"></label>
-      <label class="pl-f">Jour<input type="date" id="plDate" value="${p.date}"></label>
+      ${e.idea ? `<label class="pl-f">Ville<input value="${esc(e.destination)}" disabled></label>` : `<label class="pl-f">Jour<input type="date" id="plDate" value="${p.date}"></label>`}
     </div>
     <div class="row2">
       <label class="pl-f">Départ<input type="time" id="plDep" value="${p.depart}"></label>
@@ -3988,12 +4008,12 @@ function renderPlan() {
     ${hasAi() ? `<div class="sub" style="margin-top:12px">✨ PROGRAMME PROPOSÉ PAR L'IA</div>
     <input id="plTheme" placeholder="Envies : ex. décorations de Noël, marchés, vue sur la Tamise…">
     <button class="btn ai-btn" id="plAi" style="margin-top:6px">✨ Proposer le circuit (garde mes lieux)</button>` : ""}
-    <button class="link danger" id="plDel" style="margin-top:14px">Supprimer ce jour</button>`;
+    <button class="link danger" id="plDel" style="margin-top:14px">Supprimer ce jour</button>${e.idea ? ` · <button class="link danger" id="plDelCity">Supprimer ${esc(e.destination)}</button>` : ""}`;
   const P = p;
   $("planTabs").querySelectorAll("[data-pl]").forEach(b => b.onclick = () => { planCur = b.dataset.pl === "new" ? newPlan(e).id : b.dataset.pl; renderPlan(); });
   $("planPlay1").onclick = () => playPlan(P);
   $("plTitre").onchange = ev => { P.titre = ev.target.value.trim() || "Notre journée"; save(); renderPlan(); };
-  $("plDate").onchange = ev => { P.date = ev.target.value || P.date; save(); renderPlan(); };
+  if ($("plDate")) $("plDate").onchange = ev => { P.date = ev.target.value || P.date; save(); renderPlan(); };
   $("plDep").onchange = ev => { P.depart = ev.target.value || P.depart; save(); renderPlan(); };
   $("plRet").onchange = ev => { P.retour = ev.target.checked; save(); planCompute(P); };
   $("plHotel").onchange = async ev => {
@@ -4018,13 +4038,16 @@ function renderPlan() {
   };
   $("plAddGo").onclick = add; $("plAdd").onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); add(); } };
   if ($("plAi")) $("plAi").onclick = () => planAi(P, $("plTheme").value.trim());
-  $("plDel").onclick = function () { confirmTap(this, () => { state.plans = state.plans.filter(x => x !== P); planCur = null; save(); if (plansOf(e).length) renderPlan(); else closeSheet("sheetPlan"); }); };
+  $("plDel").onclick = function () { confirmTap(this, () => { state.plans = state.plans.filter(x => x !== P); planCur = null;
+    if (e.idea && !plansOf(e).length) { state.ideas = state.ideas.filter(x => x !== e); planCtx = null; }
+    save(); if (planE() && plansOf(planE()).length) renderPlan(); else closeSheet("sheetPlan"); }); };
+  if ($("plDelCity")) $("plDelCity").onclick = function () { confirmTap(this, () => { state.plans = state.plans.filter(x => x.escId !== e.id); state.ideas = state.ideas.filter(x => x !== e); planCtx = null; planCur = null; save(); openPlan(); }); };
 }
 $("btnPlan").onclick = () => openPlan();
 $("qPlan").onclick = () => { closeSheet("sheetQuick"); openPlan(); };
 
 async function planAi(p, theme) {
-  const e = active(), b = $("plAi"); b.disabled = true; b.textContent = "L'IA prépare le circuit…";
+  const e = planE(), b = $("plAi"); b.disabled = true; b.textContent = "L'IA prépare le circuit…";
   try {
     const city = e.destination || names(e).slice(-1)[0];
     const o = await ai([{ role: "user", content: `Prépare une journée de visite à ${city} le ${new Date(p.date + "T12:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}, départ à ${p.depart}${p.hotel ? " de l'hôtel " + p.hotel.name : ""}, pour un couple.
@@ -4046,6 +4069,54 @@ JSON : {"titre":"titre court","etapes":[{"nom":"nom officiel","wiki":"titre exac
     toast("✨ Circuit proposé · ajuste l'ordre ou les temps si besoin");
   } catch (er) { toast(er.message || "Proposition impossible"); }
   if ($("plAi")) { $("plAi").disabled = false; $("plAi").textContent = "✨ Proposer le circuit (garde mes lieux)"; }
+}
+
+async function exploreCity(city, days, theme, depart) {
+  if (!city) return toast("Écris la ville");
+  const info = t => { if ($("exInfo")) $("exInfo").textContent = t; }, b = $("exGo"); b.disabled = true;
+  try {
+    info(`Recherche de ${city}…`);
+    const c = await planGeo(city); if (!c) throw new Error("Ville introuvable : essaie « ville, pays »");
+    const name = city.split(",")[0].trim().replace(/^./, x => x.toUpperCase());
+    let jours = [];
+    if (hasAi()) {
+      info("L'IA choisit les lieux à voir…");
+      const o = await ai([{ role: "user", content: `Crée un programme de visite de ${city} en ${days} jour(s) pour un couple, départ chaque jour à ${depart} depuis le centre.
+Envies : ${theme || "les incontournables et les plus beaux endroits"}.
+Chaque jour : 5 à 7 lieux qui existent vraiment, regroupés par quartier, dans l'ordre qui fait le moins de détours à pied, sans répéter de lieu d'un jour à l'autre, en tenant compte du bon moment (ouvertures, coucher du soleil, illuminations).
+JSON : {"jours":[{"titre":"titre court du jour","etapes":[{"nom":"nom officiel","wiki":"titre exact de la page Wikipédia en anglais","lat":0,"lng":0,"visite":minutes sur place,"note":"une phrase utile"}]}]}` }], true);
+      jours = (o.jours || []).slice(0, days);
+    } else {
+      info("Recherche des lieux les plus connus…");
+      const q = `[out:json][timeout:20];(nwr(around:2500,${c.lat},${c.lng})[tourism~"^(attraction|museum|viewpoint|gallery)$"][wikidata];nwr(around:2500,${c.lat},${c.lng})[historic~"^(monument|castle|memorial|ruins)$"][wikidata];nwr(around:2500,${c.lat},${c.lng})[building~"^(cathedral|church)$"][wikidata][tourism];);out center 60;`;
+      const j = await (await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } })).json();
+      let pool = (j.elements || []).map(x => ({ nom: (x.tags["name:fr"] || x.tags.name), wiki: (x.tags.wikipedia || "").replace(/^\w+:/, ""), lat: x.lat ?? x.center.lat, lng: x.lon ?? x.center.lon, visite: x.tags.tourism === "museum" ? 60 : 20, note: "" }))
+        .filter((x, i, a) => x.nom && a.findIndex(y => y.nom === x.nom) === i);
+      const pick = [], cur0 = { lat: c.lat, lng: c.lng }; let cur = cur0; // plus proches voisins depuis le centre
+      while (pick.length < 7 && pool.length) { pool.sort((a, b2) => km(cur, a) - km(cur, b2)); cur = pool.shift(); pick.push(cur); }
+      jours = [{ titre: "Les incontournables", etapes: pick }];
+    }
+    if (!jours.length) throw new Error("Pas de proposition, réessaie");
+    const idea = { id: "idea_" + uid(), destination: name, nom: name, legs: [], idea: true, lat: c.lat, lng: c.lng };
+    (state.ideas = state.ideas || []).push(idea);
+    let done = 0; const tot = jours.reduce((s2, d) => s2 + (d.etapes || []).length, 0), made = [];
+    for (let i = 0; i < jours.length; i++) {
+      const stops = [];
+      for (const x of jours[i].etapes || []) {
+        info(`Vérification des adresses… ${++done}/${tot}`);
+        let pos = null;
+        if (hasAi()) { try { const g = await planGeo(x.nom + ", " + city, c); if (g && (!+x.lat || km(g, { lat: +x.lat, lng: +x.lng }) < 3)) pos = g; } catch (er) {} await new Promise(r => setTimeout(r, 1100)); }
+        if (!pos && +x.lat) pos = { lat: +x.lat, lng: +x.lng };
+        if (pos && km(pos, c) < 40) stops.push({ name: x.nom, wiki: x.wiki, lat: pos.lat, lng: pos.lng, visit: +x.visite || 20, note: x.note || "" });
+      }
+      const p = { id: uid(), escId: idea.id, titre: jours[i].titre || "Jour " + (i + 1), date: new Date(Date.now() + i * 864e5).toISOString().slice(0, 10), depart, hotel: { name: "Centre de " + name, lat: c.lat, lng: c.lng }, retour: false, stops, legs: [] };
+      state.plans.push(p); made.push(p);
+    }
+    planCtx = idea.id; exploreOpen = false; planCur = made[0].id; save(); renderPlan();
+    for (const p of made) await planCompute(p);
+    toast(`🌍 ${name} : ${made.length} jour(s) prêts · touche ▶ pour voir le circuit`);
+  } catch (er) { info(er.message || "Impossible de créer le circuit"); }
+  if ($("exGo")) $("exGo").disabled = false;
 }
 
 // ---------- Lecture animée (comme une vidéo : écran plein, à enregistrer avec l'enregistrement d'écran) ----------
@@ -4074,7 +4145,7 @@ function ppDraw(coords, style, ms, follow, tok) {
 async function playPlan(p) {
   if (!p.legs || p.legs.length < planPts(p).length - 1) { toast("Calcul des trajets…"); await planCompute(p, true); }
   const pts = planPts(p); if (pts.length < 2) return toast("Ajoute au moins deux lieux");
-  const T = planTimes(p), S = planSummary(p), e = active(), tok = {}; ppTok = tok;
+  const T = planTimes(p), S = planSummary(p), e = planE(), tok = {}; ppTok = tok;
   $("planPlay").hidden = false; document.body.style.overflow = "hidden";
   if (!ppMap) {
     ppMap = L.map("planMap", { zoomControl: false, attributionControl: false });
@@ -4164,7 +4235,7 @@ drawMap = function (...a) {
 })();
 
 // ================= Version + imports par lien =================
-const VERSION = "v77";
+const VERSION = "v78";
 $("ver").textContent = VERSION;
 // Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
 const PRESET_SYNC = 3; // 3 : on remplace toutes les dépenses de Milan par la liste Tricount (demandé par Nico)
