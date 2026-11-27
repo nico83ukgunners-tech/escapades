@@ -2552,7 +2552,7 @@ function renderStamps() {
   $("stamps").innerHTML = list.map(e => {
     const [, a] = names(e), r = ((hash(e.id) % 13) - 6);
     return `<button class="stamp ${e.id === state.activeId ? "active" : ""}" style="--ink-c:${inkOf(e.id)};--r:${r}deg" data-pick-esc="${e.id}">
-      <small>${TRANSPORT[modeOf(e)] || "🚆"} ${e.id === state.activeId ? "EN COURS" : "VISA"}</small>
+      <small>${TRANSPORT[modeOf(e)] || "🚆"} ${e.id === state.activeId ? (isPast(e) ? "SOUVENIR" : (e.debut || "") > today() ? "PROCHAINE" : "EN COURS") : isPast(e) ? "ARCHIVE" : "À VENIR"}</small>
       <b>${esc(a)}</b>
       <span>${esc(fmt(e.debut, {day:"2-digit", month:"2-digit", year:"2-digit"}))}</span>
     </button>`;
@@ -2646,7 +2646,22 @@ load();
 initMap();
 renderAll(true);
 aiUI();
-loadIdb().then(() => {
+// Tâches à lancer une fois les données complètes chargées (sinon le chargement les écraserait)
+const afterLoad = []; let loaded = false;
+function whenLoaded(fn) { loaded ? fn() : afterLoad.push(fn); }
+// Escapade finie = archivée : l'app se place sur la prochaine (ou celle en cours)
+function isPast(e) {
+  if (!e) return false;
+  if (e.retour) return e.retour.slice(0, 10) < today();
+  return !!e.debut && (Date.now() - new Date(e.debut + "T12:00").getTime()) > 5 * 864e5; // sans date de retour : finie 5 jours après le départ
+}
+function autoActive() {
+  const a = active();
+  if (a && !isPast(a)) return;
+  const next = state.escapades.filter(x => !isPast(x)).sort((x, y) => (x.debut || "").localeCompare(y.debut || ""))[0];
+  if (next && next !== a) { state.activeId = next.id; save(); renderAll(true); }
+}
+loadIdb().finally(() => { loaded = true; afterLoad.splice(0).forEach(f => { try { f(); } catch (er) { console.error(er); } }); }).then(() => {
   // Rappel de sauvegarde (une fois par jour) si des moments n'ont jamais été sauvegardés depuis 2 jours
   const n = state.moments.length, last = state.lastBackup || 0, today_ = dayKey(Date.now());
   if (n >= 3 && Date.now() - last > 2 * 864e5 && state.backupNag !== today_) { state.backupNag = today_; save(); setTimeout(() => toast("💾 Pense à sauvegarder tes souvenirs : Passeport → Sauvegarde"), 2500); }
@@ -3958,7 +3973,7 @@ function openPlan(id) {
 }
 function renderPlan() {
   const e = planE(), list = e ? plansOf(e) : [], p = list.find(x => x.id === planCur) || list[0];
-  const chips = state.escapades.map(x => `<button class="${!planCtx && e && x.id === e.id ? "on" : ""}" data-pe="${x.id}">${esc(names(x)[names(x).length - 1])}</button>`).join("")
+  const chips = state.escapades.filter(x => !isPast(x) || (!planCtx && e && x.id === e.id)).map(x => `<button class="${!planCtx && e && x.id === e.id ? "on" : ""}" data-pe="${x.id}">${esc(names(x)[names(x).length - 1])}</button>`).join("")
     + (state.ideas || []).map(x => `<button class="${planCtx === x.id ? "on" : ""}" data-pi="${x.id}">🌍 ${esc(x.destination)}</button>`).join("")
     + `<button class="${exploreOpen ? "on" : ""}" id="plExplore">🌍 Explorer une ville</button>`;
   $("planEsc").innerHTML = chips;
@@ -4201,16 +4216,16 @@ drawMap = function (...a) {
 };
 
 // ---------- Londres : séjour du 30 nov. au 3 déc. 2026 + circuit des illuminations de Noël ----------
-(function fixLondon() {
-  if (localStorage.getItem("esc-fix-london")) return;
-  localStorage.setItem("esc-fix-london", "1");
+function fixLondon() {
+  if (localStorage.getItem("esc-fix-london2")) return;
+  localStorage.setItem("esc-fix-london2", "1");
   const lo = state.escapades.find(x => /londres|london/i.test((x.destination || "") + (x.nom || "")));
   state.plans = (state.plans || []).filter(p => p.stops.length || (lo && p.escId === lo.id));
-  if (lo) { state.activeId = lo.id; save(); setTimeout(() => renderAll(true), 0); }
-})();
-(function seedLondon() {
-  if (localStorage.getItem("esc-seed-london")) return;
-  localStorage.setItem("esc-seed-london", "1");
+  if (lo) { state.activeId = lo.id; save(); renderAll(true); }
+}
+function seedLondon() {
+  if (localStorage.getItem("esc-seed-london2")) return;
+  localStorage.setItem("esc-seed-london2", "1");
   let e = state.escapades.find(x => /londres|london/i.test((x.destination || "") + (x.nom || "")));
   if (!e) {
     e = { id: uid(), destination: "Londres", nom: "Londres", transport: "avion", debut: "2026-11-30", retour: "2026-12-03T18:00", budget: 0, track: [], legs: [] };
@@ -4231,11 +4246,12 @@ drawMap = function (...a) {
       { name: "Covent Garden", wiki: "Covent Garden", lat: 51.5117, lng: -0.1229, visit: 45, note: "Le grand final : l'immense sapin et le marché couvert." }
     ], legs: []
   });
-  save(); setTimeout(() => renderAll(true), 0);
-})();
+  save(); renderAll(true);
+}
+whenLoaded(() => { seedLondon(); fixLondon(); autoActive(); });
 
 // ================= Version + imports par lien =================
-const VERSION = "v78";
+const VERSION = "v79";
 $("ver").textContent = VERSION;
 // Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
 const PRESET_SYNC = 3; // 3 : on remplace toutes les dépenses de Milan par la liste Tricount (demandé par Nico)
@@ -4301,7 +4317,7 @@ function runPreset(forced, replaceAll) {
 runPreset();
 window.addEventListener("hashchange", () => runPreset());
 // une fois, automatiquement, après la mise à jour de la liste
-if (+localStorage.getItem("esc-preset-sync") < PRESET_SYNC && state.escapades.length) setTimeout(() => runPreset("milan-tricount", true), 800);
+whenLoaded(() => { if (+localStorage.getItem("esc-preset-sync") < PRESET_SYNC && state.escapades.length) { const a = state.activeId; runPreset("milan-tricount", true); state.activeId = a; save(); renderAll(true); show("carte"); } });
 function presetBtn() { $("btnMilanPreset").hidden = !active() || +localStorage.getItem("esc-preset-sync") >= PRESET_SYNC && PRESETS["milan-tricount"].every(([id]) => state.depenses.some(d => d.id === "milan-" + id)); }
 $("btnMilanPreset").onclick = () => { runPreset("milan-tricount", true); presetBtn(); };
 presetBtn();
