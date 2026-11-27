@@ -8,8 +8,8 @@ self.addEventListener("fetch", e => {
   const r = e.request;
   if (r.method !== "GET") return;
   const u = new URL(r.url);
-  if (/openai|nominatim|open-meteo|frankfurter|overpass|deezer|itunes/.test(u.host)) return;          // données en direct : jamais en cache
-  if (r.destination === "audio" || r.destination === "video" || r.headers.has("range") || /dzcdn|deezer|itunes|mzstatic|apple\.com/.test(u.host)) return; // sons et vidéos : directement au réseau
+  if (/openai|nominatim|open-meteo|frankfurter|overpass|deezer|itunes|tfl\.gov|wikipedia|routing\.openstreetmap/.test(u.host)) return;          // données en direct : jamais en cache
+  if (r.destination === "audio" || r.destination === "video" || r.headers.has("range") || /dzcdn|deezer|itunes|mzstatic|apple\.com|wikimedia/.test(u.host)) return; // sons et vidéos : directement au réseau
   if (u.origin === location.origin) {
     e.respondWith(fetch(r).then(res => {
       if (res.ok && !u.search.includes("check=")) { const c = res.clone(); caches.open(V).then(ca => ca.put(new Request(u.origin + u.pathname), c)); }
