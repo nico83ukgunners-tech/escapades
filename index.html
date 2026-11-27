@@ -1106,22 +1106,27 @@ function confirmTap(btn, fn) {
   setTimeout(() => { if (btn.dataset.armed === "1") { btn.dataset.armed = ""; btn.textContent = label; } }, 3000);
 }
 
+// Fond de carte commun (carte principale + lecture animée) : OSM France, bascule sur OSM standard si les tuiles ne répondent pas
+function addBaseTiles(m) {
+  const fr = L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap France", subdomains: "abc", maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin"
+  }).addTo(m);
+  let errors = 0, switched = false;
+  fr.on("tileerror", () => {
+    if (switched || ++errors < 4) return;
+    switched = true; m.removeLayer(fr);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap", maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin"
+    }).addTo(m);
+  });
+  return fr;
+}
 // ================= Carte =================
 function initMap() {
   map = L.map("map", { zoomControl: false }).setView([43.79, 7.53], 10);
   L.control.zoom({ position: "bottomright" }).addTo(map);
   // Fond OSM France (noms en français, sans clé) ; bascule sur OSM standard si les tuiles ne répondent pas
-  const fr = L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap France", subdomains: "abc", maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin"
-  }).addTo(map);
-  let errors = 0, switched = false;
-  fr.on("tileerror", () => {
-    if (switched || ++errors < 4) return;
-    switched = true; map.removeLayer(fr);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap", maxZoom: 19, referrerPolicy: "strict-origin-when-cross-origin"
-    }).addTo(map);
-  });
+  addBaseTiles(map);
   layer = L.layerGroup().addTo(map);
   map.on("click", e => {
     pick = { lat: e.latlng.lat, lng: e.latlng.lng };
@@ -4164,10 +4169,11 @@ async function playPlan(p) {
   $("planPlay").hidden = false; document.body.style.overflow = "hidden";
   if (!ppMap) {
     ppMap = L.map("planMap", { zoomControl: false, attributionControl: false });
-    L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", { subdomains: "abc", maxZoom: 19 }).addTo(ppMap);
+    addBaseTiles(ppMap);
     ppLayer = L.layerGroup().addTo(ppMap);
   }
   ppLayer.clearLayers(); ppMap.invalidateSize();
+  ppMap.eachLayer(l => { if (l instanceof L.TileLayer) l.redraw(); });
   const all = L.latLngBounds(pts.map(x => [x.lat, x.lng])); (p.legs || []).forEach(l => l.geom.forEach(c => all.extend(c)));
   $("ppTitle").textContent = `${names(e)[names(e).length - 1]} · ${p.titre}`;
   $("ppSub").textContent = new Date(p.date + "T12:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }) + ` · ${S.n} étapes · ${f1(S.kmw)} km à pied`;
@@ -4251,7 +4257,7 @@ function seedLondon() {
 whenLoaded(() => { seedLondon(); fixLondon(); autoActive(); });
 
 // ================= Version + imports par lien =================
-const VERSION = "v79";
+const VERSION = "v80";
 $("ver").textContent = VERSION;
 // Liste Tricount « Milan Nov '26 » (0 = Nico, 1 = Ashleigh ; "both" = partagé 50/50)
 const PRESET_SYNC = 3; // 3 : on remplace toutes les dépenses de Milan par la liste Tricount (demandé par Nico)
